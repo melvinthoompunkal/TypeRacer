@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
+import {
+  playGameSound,
+  primeGameAudio,
+  RaceCar,
+  SoundButton,
+} from './gamePolish'
 
 type Screen = 'home' | 'practice' | 'multiplayer'
 
@@ -50,7 +56,11 @@ function App() {
   const [now, setNow] = useState(Date.now())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [soundEnabled, setSoundEnabled] = useState(
+    () => window.localStorage.getItem('type-racer-sound') === 'on',
+  )
   const inputRef = useRef<HTMLInputElement>(null)
+  const previousErrorRef = useRef(false)
 
   useEffect(() => {
     fetch('/api/packs')
@@ -111,6 +121,18 @@ function App() {
   const accuracy = calculateAccuracy(correctKeystrokes, totalKeystrokes)
   const progress = round ? (correctCount / round.sentence.length) * 100 : 0
 
+  useEffect(() => {
+    if (hasError && !previousErrorRef.current) playGameSound(soundEnabled, 'error')
+    previousErrorRef.current = hasError
+  }, [hasError, soundEnabled])
+
+  const toggleSound = () => {
+    const nextValue = !soundEnabled
+    setSoundEnabled(nextValue)
+    window.localStorage.setItem('type-racer-sound', nextValue ? 'on' : 'off')
+    if (nextValue) primeGameAudio()
+  }
+
   const handleInput = (rawValue: string) => {
     if (!round || finishedAt !== null) return
 
@@ -153,6 +175,7 @@ function App() {
       const finalWpm = calculateWpm(round.sentence.length, finish - start)
       setFinishedAt(finish)
       setSessionBest((best) => Math.max(best, finalWpm))
+      playGameSound(soundEnabled, 'finish')
       window.setTimeout(() => inputRef.current?.blur(), 0)
     }
   }
@@ -187,6 +210,8 @@ function App() {
       <MultiplayerRace
         playerName={playerName}
         entry={multiplayerEntry}
+        soundEnabled={soundEnabled}
+        onToggleSound={toggleSound}
         onExit={returnHome}
       />
     )
@@ -202,7 +227,10 @@ function App() {
             <span className="brand-mark">T</span>
             <span>TypeRacer</span>
           </button>
-          <button className="text-button" onClick={returnHome}>Exit practice</button>
+          <div className="nav-actions">
+            <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
+            <button className="text-button" onClick={returnHome}>Exit practice</button>
+          </div>
         </nav>
 
         <section className="practice-header">
@@ -225,7 +253,7 @@ function App() {
 
           <div className="track" aria-label={`${Math.round(progress)} percent complete`}>
             <div className="track-fill" style={{ width: `${progress}%` }} />
-            <div className="car" style={{ left: `${Math.min(progress, 96)}%` }} aria-hidden="true">🏎️</div>
+            <RaceCar progress={progress} active={startedAt !== null && finishedAt === null} finished={finishedAt !== null} />
             <div className="finish-line" aria-hidden="true" />
           </div>
 
@@ -255,6 +283,7 @@ function App() {
             autoCorrect="off"
             spellCheck={false}
             aria-label="Type the sentence here"
+            inputMode="text"
           />
 
           {!finishedAt && (
@@ -288,13 +317,16 @@ function App() {
           <span className="brand-mark">T</span>
           <span>TypeRacer</span>
         </div>
-        <span className="status-pill"><i /> Server online</span>
+        <div className="nav-actions">
+          <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
+          <span className="status-pill"><i /> Server online</span>
+        </div>
       </nav>
 
       <section className="hero">
         <span className="eyebrow">Ready, set, type</span>
         <h1>How fast can your<br /><em>fingers fly?</em></h1>
-        <p>Sharpen your speed in solo practice today. Live multiplayer racing is pulling up next.</p>
+        <p>Warm up solo, jump into a four-racer quick match, or challenge friends in a private room.</p>
       </section>
 
       {error && <div className="error-banner" role="alert">{error}</div>}
@@ -305,7 +337,12 @@ function App() {
           <span className="eyebrow">Available now</span>
           <h2>Practice</h2>
           <p>Pick a pack, find your rhythm, and chase a new session best.</p>
-          <span className="card-action">Choose a pack <b>→</b></span>
+          <button
+            className="card-action"
+            onClick={() => document.querySelector('#practice-packs')?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            Choose a pack <b>→</b>
+          </button>
         </article>
         <article className="mode-card race-mode">
           <div className="mode-icon">🏁</div>
@@ -358,7 +395,7 @@ function App() {
         </article>
       </section>
 
-      <section className="packs-section">
+      <section className="packs-section" id="practice-packs">
         <div className="section-heading">
           <div>
             <span className="eyebrow">Practice library</span>

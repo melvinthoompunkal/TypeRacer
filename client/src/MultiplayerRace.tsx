@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
+import {
+  playGameSound,
+  RaceCar,
+  racerColor,
+  SoundButton,
+} from './gamePolish'
 
 type Phase = 'joining' | 'lobby' | 'countdown' | 'racing' | 'results'
 type RoomMode = 'quick' | 'private'
@@ -86,6 +92,8 @@ type ClientToServerEvents = {
 type MultiplayerRaceProps = {
   playerName: string
   entry: MultiplayerEntry
+  soundEnabled: boolean
+  onToggleSound: () => void
   onExit: () => void
 }
 
@@ -101,6 +109,8 @@ function ordinal(value: number) {
 export default function MultiplayerRace({
   playerName,
   entry,
+  soundEnabled,
+  onToggleSound,
   onExit,
 }: MultiplayerRaceProps) {
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
@@ -118,7 +128,11 @@ export default function MultiplayerRace({
   const [error, setError] = useState('')
   const [rematch, setRematch] = useState({ votes: 0, required: 1 })
   const [rematchVoted, setRematchVoted] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const soundCueRef = useRef('')
+  const previousErrorRef = useRef(false)
+  const resultsSoundPlayedRef = useRef(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 100)
@@ -155,6 +169,8 @@ export default function MultiplayerRace({
       setResults([])
       setTyped('')
       setRematchVoted(false)
+      setCopiedCode(false)
+      resultsSoundPlayedRef.current = false
       setPhase('lobby')
     }
 
@@ -216,6 +232,27 @@ export default function MultiplayerRace({
     ? Math.max(0, Math.ceil((lobby.startsAt - now) / 1_000))
     : 0
 
+  useEffect(() => {
+    const cue = phase === 'countdown' ? `countdown-${countdown}` : phase
+    if (soundCueRef.current === cue) return
+    soundCueRef.current = cue
+
+    if (phase === 'countdown' && countdown > 0) playGameSound(soundEnabled, 'countdown')
+    if (phase === 'racing') playGameSound(soundEnabled, 'go')
+  }, [countdown, phase, soundEnabled])
+
+  useEffect(() => {
+    if (hasError && !previousErrorRef.current) playGameSound(soundEnabled, 'error')
+    previousErrorRef.current = hasError
+  }, [hasError, soundEnabled])
+
+  useEffect(() => {
+    if (phase !== 'results' || resultsSoundPlayedRef.current) return
+    resultsSoundPlayedRef.current = true
+    const ownResult = results.find((result) => result.id === playerId)
+    playGameSound(soundEnabled, ownResult?.placement === 1 ? 'win' : 'finish')
+  }, [phase, playerId, results, soundEnabled])
+
   const handleInput = (rawValue: string) => {
     if (!race || phase !== 'racing' || self?.finished) return
 
@@ -246,6 +283,17 @@ export default function MultiplayerRace({
     })
   }
 
+  const copyRoomCode = async () => {
+    if (!lobby?.roomCode) return
+    try {
+      await navigator.clipboard.writeText(lobby.roomCode)
+      setCopiedCode(true)
+      window.setTimeout(() => setCopiedCode(false), 1_800)
+    } catch {
+      setCopiedCode(false)
+    }
+  }
+
   const voteRematch = () => {
     setRematchVoted(true)
     socket.emit('race:rematch')
@@ -270,7 +318,10 @@ export default function MultiplayerRace({
             <span className="brand-mark">T</span>
             <span>TypeRacer</span>
           </div>
-          <button className="text-button" onClick={exitRace}>Leave lobby</button>
+          <div className="nav-actions">
+            <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+            <button className="text-button" onClick={exitRace}>Leave lobby</button>
+          </div>
         </nav>
 
         <section className="lobby-panel">
@@ -287,12 +338,12 @@ export default function MultiplayerRace({
           {isPrivate && lobby?.roomCode && (
             <button
               className="room-code"
-              onClick={() => navigator.clipboard?.writeText(lobby.roomCode ?? '')}
+              onClick={copyRoomCode}
               title="Copy room code"
             >
               <span>Room code</span>
               <strong>{lobby.roomCode}</strong>
-              <small>Tap to copy</small>
+              <small>{copiedCode ? 'Copied!' : 'Tap to copy'}</small>
             </button>
           )}
 
@@ -343,7 +394,10 @@ export default function MultiplayerRace({
             <span className="brand-mark">T</span>
             <span>TypeRacer</span>
           </div>
-          <button className="text-button" onClick={exitRace}>Back home</button>
+          <div className="nav-actions">
+            <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+            <button className="text-button" onClick={exitRace}>Back home</button>
+          </div>
         </nav>
 
         <section className="results-panel">
@@ -360,7 +414,9 @@ export default function MultiplayerRace({
                 className={result.id === playerId ? 'result-row own-result' : 'result-row'}
                 key={result.id}
               >
-                <strong>{ordinal(result.placement)}</strong>
+                <strong className={`place-badge place-${result.placement}`}>
+                  {ordinal(result.placement)}
+                </strong>
                 <span>
                   {result.name}
                   {result.id === playerId && <small>You</small>}
@@ -394,7 +450,10 @@ export default function MultiplayerRace({
           <span className="brand-mark">T</span>
           <span>TypeRacer</span>
         </div>
-        <span className="race-pack">{race.packLabel}</span>
+        <div className="nav-actions">
+          <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+          <span className="race-pack">{race.packLabel}</span>
+        </div>
       </nav>
 
       <section className="multiplayer-race">
@@ -410,15 +469,26 @@ export default function MultiplayerRace({
         </div>
 
         <div className="racer-tracks" aria-live="polite">
-          {racers.map((racer) => (
-            <div className={racer.connected ? 'racer-track-row' : 'racer-track-row disconnected'} key={racer.id}>
+          {racers.map((racer, index) => (
+            <div
+              className={`racer-track-row${racer.id === playerId ? ' own-track' : ''}${racer.connected ? '' : ' disconnected'}`}
+              key={racer.id}
+            >
               <div className="track-name">
                 <strong>{racer.name}</strong>
                 {racer.id === playerId && <small>You</small>}
               </div>
               <div className="track multiplayer-track">
-                <div className="track-fill" style={{ width: `${racer.progress}%` }} />
-                <div className="car" style={{ left: `${Math.min(racer.progress, 96)}%` }} aria-hidden="true">🏎️</div>
+                <div
+                  className="track-fill"
+                  style={{ width: `${racer.progress}%`, backgroundColor: racerColor(index) }}
+                />
+                <RaceCar
+                  progress={racer.progress}
+                  color={racerColor(index)}
+                  active={phase === 'racing' && racer.connected && !racer.finished}
+                  finished={racer.finished}
+                />
                 <div className="finish-line" aria-hidden="true" />
               </div>
               <span className="track-percent">{Math.round(racer.progress)}%</span>
@@ -432,6 +502,7 @@ export default function MultiplayerRace({
         >
           {phase === 'countdown' && (
             <div className="countdown-overlay">
+              <span>Race starts in</span>
               <strong>{countdown || 'GO'}</strong>
             </div>
           )}
@@ -462,6 +533,7 @@ export default function MultiplayerRace({
             autoCorrect="off"
             spellCheck={false}
             aria-label="Type the race sentence here"
+            inputMode="text"
             disabled={phase !== 'racing' || self?.finished}
           />
 
