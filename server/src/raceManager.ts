@@ -1,15 +1,20 @@
 import type { Server, Socket } from 'socket.io'
+import { createBotProfile, startBotTyping } from './botSimulator.js'
 import { getRandomRaceSentence } from './sentences.js'
 
 const MAX_PLAYERS = 4
 const COUNTDOWN_MS = 3_000
-const ROOM_CLEANUP_MS = 60_000
+const ROOM_CLEANUP_MS = 120_000
+const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
 
 type RoomStatus = 'waiting' | 'countdown' | 'racing' | 'finished'
+type RoomMode = 'quick' | 'private'
 
 type RacePlayer = {
   id: string
   name: string
+  isBot: boolean
+  targetWpm: number | null
   typedText: string
   correctCharacters: number
   correctKeystrokes: number
@@ -22,22 +27,28 @@ type RacePlayer = {
 
 type RaceRoom = {
   id: string
+  mode: RoomMode
+  code: string | null
+  hostId: string | null
   status: RoomStatus
   players: Map<string, RacePlayer>
   sentence: string
   packId: string
   packLabel: string
   startsAt: number | null
-  waitingEndsAt: number
+  waitingEndsAt: number | null
   finishOrder: string[]
+  rematchVotes: Set<string>
   waitingTimer: NodeJS.Timeout | null
   startTimer: NodeJS.Timeout | null
   stateTimer: NodeJS.Timeout | null
   cleanupTimer: NodeJS.Timeout | null
+  botStops: Map<string, () => void>
 }
 
 type JoinPayload = {
   name?: unknown
+  code?: unknown
 }
 
 type TypedPayload = {
@@ -45,7 +56,11 @@ type TypedPayload = {
 }
 
 type JoinResult =
-  | { ok: true; playerId: string }
+  | { ok: true; playerId: string; roomCode: string | null }
+  | { ok: false; error: string }
+
+type ActionResult =
+  | { ok: true }
   | { ok: false; error: string }
 
 function calculateWpm(correctCharacters: number, elapsedMs: number) {
@@ -77,15 +92,37 @@ function sanitizeName(value: unknown) {
   return value.trim().replace(/\s+/g, ' ').slice(0, 18)
 }
 
+function sanitizeCode(value: unknown) {
+  if (typeof value !== 'string') return ''
+  return value.trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4)
+}
+
+function resetPlayer(player: RacePlayer) {
+  player.typedText = ''
+  player.correctCharacters = 0
+  player.correctKeystrokes = 0
+  player.totalKeystrokes = 0
+  player.finishedAt = null
+  player.placement = null
+  player.disconnectedAt = null
+}
+
 export function registerRaceHandlers(io: Server) {
   const rooms = new Map<string, RaceRoom>()
   const socketRooms = new Map<string, string>()
   let roomSequence = 0
+  let botSequence = 0
 
-  const getPlayerState = (room: RaceRoom, player: RacePlayer, now = Date.now()) => {
+  function humanPlayers(room: RaceRoom, connectedOnly = false) {
+    return [...room.players.values()].filter(
+      (player) => !player.isBot && (!connectedOnly || player.connected),
+    )
+  }
+
+  function getPlayerState(room: RaceRoom, player: RacePlayer, now = Date.now()) {
     const elapsedMs = room.startsAt === null
       ? 0
-      : (player.finishedAt ?? now) - room.startsAt
+      : Math.max(0, (player.finishedAt ?? now) - room.startsAt)
 
     return {
       id: player.id,
@@ -101,22 +138,48 @@ export function registerRaceHandlers(io: Server) {
     }
   }
 
-  const emitLobby = (room: RaceRoom) => {
+  function clearRaceTimers(room: RaceRoom) {
+    if (room.waitingTimer) clearTimeout(room.waitingTimer)
+    if (room.startTimer) clearTimeout(room.startTimer)
+    if (room.stateTimer) clearInterval(room.stateTimer)
+    if (room.cleanupTimer) clearTimeout(room.cleanupTimer)
+    room.waitingTimer = null
+    room.startTimer = null
+    room.stateTimer = null
+    room.cleanupTimer = null
+  }
+
+  function stopBots(room: RaceRoom) {
+    room.botStops.forEach((stop) => stop())
+    room.botStops.clear()
+  }
+
+  function deleteRoom(room: RaceRoom) {
+    clearRaceTimers(room)
+    stopBots(room)
+    humanPlayers(room).forEach((player) => socketRooms.delete(player.id))
+    rooms.delete(room.id)
+  }
+
+  function emitLobby(room: RaceRoom) {
     io.to(room.id).emit('lobby:update', {
       roomId: room.id,
+      mode: room.mode,
+      roomCode: room.code,
+      hostId: room.hostId,
       players: [...room.players.values()].map(({ id, name }) => ({ id, name })),
       maxPlayers: MAX_PLAYERS,
       startsAt: room.waitingEndsAt,
     })
   }
 
-  const emitRaceState = (room: RaceRoom) => {
+  function emitRaceState(room: RaceRoom) {
     io.to(room.id).emit('race:state', {
       racers: [...room.players.values()].map((player) => getPlayerState(room, player)),
     })
   }
 
-  const emitCountdown = (room: RaceRoom) => {
+  function emitCountdown(room: RaceRoom) {
     io.to(room.id).emit('race:countdown', {
       sentence: room.sentence,
       packId: room.packId,
@@ -126,18 +189,165 @@ export function registerRaceHandlers(io: Server) {
     })
   }
 
-  const deleteRoom = (room: RaceRoom) => {
-    if (room.waitingTimer) clearTimeout(room.waitingTimer)
-    if (room.startTimer) clearTimeout(room.startTimer)
-    if (room.stateTimer) clearInterval(room.stateTimer)
-    if (room.cleanupTimer) clearTimeout(room.cleanupTimer)
-    rooms.delete(room.id)
+  function emitRematch(room: RaceRoom) {
+    io.to(room.id).emit('rematch:update', {
+      votes: room.rematchVotes.size,
+      required: humanPlayers(room, true).length,
+    })
   }
 
-  const finishRoom = (room: RaceRoom) => {
+  function assignHost(room: RaceRoom) {
+    const currentHost = room.hostId ? room.players.get(room.hostId) : undefined
+    if (currentHost?.connected && !currentHost.isBot) return
+    room.hostId = humanPlayers(room, true)[0]?.id ?? null
+  }
+
+  function generateRoomCode() {
+    let code = ''
+    do {
+      code = Array.from(
+        { length: 4 },
+        () => CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)],
+      ).join('')
+    } while (rooms.has(`private-${code}`))
+    return code
+  }
+
+  function scheduleQuickStart(room: RaceRoom) {
+    const waitMs = 3_000 + Math.floor(Math.random() * 2_001)
+    room.waitingEndsAt = Date.now() + waitMs
+    room.waitingTimer = setTimeout(() => fillBotsAndStart(room), waitMs)
+  }
+
+  function createRoom(mode: RoomMode, code: string | null = null) {
+    roomSequence += 1
+    const room: RaceRoom = {
+      id: mode === 'private' ? `private-${code}` : `quick-${roomSequence}`,
+      mode,
+      code,
+      hostId: null,
+      status: 'waiting',
+      players: new Map(),
+      sentence: '',
+      packId: '',
+      packLabel: '',
+      startsAt: null,
+      waitingEndsAt: null,
+      finishOrder: [],
+      rematchVotes: new Set(),
+      waitingTimer: null,
+      startTimer: null,
+      stateTimer: null,
+      cleanupTimer: null,
+      botStops: new Map(),
+    }
+
+    rooms.set(room.id, room)
+    if (mode === 'quick') scheduleQuickStart(room)
+    return room
+  }
+
+  function uniqueHumanName(room: RaceRoom, requestedName: string) {
+    const existingNames = new Set(
+      [...room.players.values()].map((player) => player.name.toLowerCase()),
+    )
+    let name = requestedName
+    let suffix = 2
+    while (existingNames.has(name.toLowerCase())) {
+      name = `${requestedName.slice(0, 15)} ${suffix}`
+      suffix += 1
+    }
+    return name
+  }
+
+  function addHuman(socket: Socket, room: RaceRoom, requestedName: string) {
+    const player: RacePlayer = {
+      id: socket.id,
+      name: uniqueHumanName(room, requestedName),
+      isBot: false,
+      targetWpm: null,
+      typedText: '',
+      correctCharacters: 0,
+      correctKeystrokes: 0,
+      totalKeystrokes: 0,
+      finishedAt: null,
+      placement: null,
+      connected: true,
+      disconnectedAt: null,
+    }
+
+    room.players.set(player.id, player)
+    socketRooms.set(socket.id, room.id)
+    socket.join(room.id)
+    return player
+  }
+
+  function addBot(room: RaceRoom) {
+    botSequence += 1
+    const usedNames = new Set(
+      [...room.players.values()].map((player) => player.name.toLowerCase()),
+    )
+    const profile = createBotProfile(usedNames)
+    const bot: RacePlayer = {
+      id: `bot-${roomSequence}-${botSequence}`,
+      name: profile.name,
+      isBot: true,
+      targetWpm: profile.targetWpm,
+      typedText: '',
+      correctCharacters: 0,
+      correctKeystrokes: 0,
+      totalKeystrokes: 0,
+      finishedAt: null,
+      placement: null,
+      connected: true,
+      disconnectedAt: null,
+    }
+    room.players.set(bot.id, bot)
+  }
+
+  function applyTypedText(room: RaceRoom, player: RacePlayer, rawText: string) {
+    if (room.status !== 'racing' || room.startsAt === null || player.finishedAt !== null) return
+
+    const nextText = rawText.slice(0, room.sentence.length + 1)
+    const sharedPrefixLength = countSharedPrefix(player.typedText, nextText)
+    for (let index = sharedPrefixLength; index < nextText.length; index += 1) {
+      player.totalKeystrokes += 1
+      if (nextText[index] === room.sentence[index]) player.correctKeystrokes += 1
+    }
+
+    player.typedText = nextText
+    player.correctCharacters = countCorrectPrefix(nextText, room.sentence)
+
+    if (nextText === room.sentence) {
+      player.finishedAt = Date.now()
+      room.finishOrder.push(player.id)
+      player.placement = room.finishOrder.length
+    }
+
+    emitRaceState(room)
+    if (player.finishedAt !== null) maybeFinishRoom(room)
+  }
+
+  function startBots(room: RaceRoom) {
+    ;[...room.players.values()]
+      .filter((player) => player.isBot && player.targetWpm !== null)
+      .forEach((bot) => {
+        const stop = startBotTyping({
+          sentence: room.sentence,
+          targetWpm: bot.targetWpm as number,
+          isActive: () => room.status === 'racing' && bot.connected,
+          onText: (text) => applyTypedText(room, bot, text),
+        })
+        room.botStops.set(bot.id, stop)
+      })
+  }
+
+  function finishRoom(room: RaceRoom) {
     if (room.status === 'finished') return
     room.status = 'finished'
     if (room.stateTimer) clearInterval(room.stateTimer)
+    room.stateTimer = null
+    stopBots(room)
 
     const orderedPlayers = [
       ...room.finishOrder
@@ -145,7 +355,7 @@ export function registerRaceHandlers(io: Server) {
         .filter((player): player is RacePlayer => Boolean(player)),
       ...[...room.players.values()]
         .filter((player) => player.finishedAt === null)
-        .sort((left, right) => (left.disconnectedAt ?? 0) - (right.disconnectedAt ?? 0)),
+        .sort((left, right) => (right.disconnectedAt ?? 0) - (left.disconnectedAt ?? 0)),
     ]
 
     orderedPlayers.forEach((player, index) => {
@@ -156,36 +366,36 @@ export function registerRaceHandlers(io: Server) {
       results: orderedPlayers.map((player) => ({
         ...getPlayerState(room, player),
         placement: player.placement,
-        isBot: false,
+        isBot: player.isBot,
       })),
     })
-
+    emitRematch(room)
     room.cleanupTimer = setTimeout(() => deleteRoom(room), ROOM_CLEANUP_MS)
   }
 
-  const maybeFinishRoom = (room: RaceRoom) => {
-    const connectedPlayers = [...room.players.values()].filter((player) => player.connected)
-    if (connectedPlayers.length === 0) {
+  function maybeFinishRoom(room: RaceRoom) {
+    if (humanPlayers(room, true).length === 0) {
       deleteRoom(room)
       return
     }
 
-    if (connectedPlayers.every((player) => player.finishedAt !== null)) {
-      finishRoom(room)
-    }
+    const activePlayers = [...room.players.values()].filter((player) => player.connected)
+    if (activePlayers.every((player) => player.finishedAt !== null)) finishRoom(room)
   }
 
-  const beginRace = (room: RaceRoom) => {
-    if (room.status !== 'countdown' || room.players.size === 0) return
+  function beginRace(room: RaceRoom) {
+    if (room.status !== 'countdown' || humanPlayers(room, true).length === 0) return
     room.status = 'racing'
     io.to(room.id).emit('race:started', { startsAt: room.startsAt })
     emitRaceState(room)
     room.stateTimer = setInterval(() => emitRaceState(room), 500)
+    startBots(room)
   }
 
-  const startCountdown = (room: RaceRoom) => {
-    if (room.status !== 'waiting' || room.players.size === 0) return
+  function startCountdown(room: RaceRoom) {
+    if (room.status !== 'waiting' || humanPlayers(room, true).length === 0) return
     if (room.waitingTimer) clearTimeout(room.waitingTimer)
+    room.waitingTimer = null
 
     const raceSentence = getRandomRaceSentence()
     room.status = 'countdown'
@@ -193,36 +403,47 @@ export function registerRaceHandlers(io: Server) {
     room.packId = raceSentence.packId
     room.packLabel = raceSentence.packLabel
     room.startsAt = Date.now() + COUNTDOWN_MS
+    room.waitingEndsAt = null
 
     emitCountdown(room)
     room.startTimer = setTimeout(() => beginRace(room), COUNTDOWN_MS)
   }
 
-  const createRoom = () => {
-    roomSequence += 1
-    const waitMs = 3_000 + Math.floor(Math.random() * 2_001)
-    const room: RaceRoom = {
-      id: `quick-${roomSequence}`,
-      status: 'waiting',
-      players: new Map(),
-      sentence: '',
-      packId: '',
-      packLabel: '',
-      startsAt: null,
-      waitingEndsAt: Date.now() + waitMs,
-      finishOrder: [],
-      waitingTimer: null,
-      startTimer: null,
-      stateTimer: null,
-      cleanupTimer: null,
-    }
-
-    rooms.set(room.id, room)
-    room.waitingTimer = setTimeout(() => startCountdown(room), waitMs)
-    return room
+  function fillBotsAndStart(room: RaceRoom) {
+    if (room.status !== 'waiting' || humanPlayers(room, true).length === 0) return
+    while (room.players.size < MAX_PLAYERS) addBot(room)
+    startCountdown(room)
   }
 
-  const leaveRoom = (socket: Socket) => {
+  function prepareRematch(room: RaceRoom) {
+    clearRaceTimers(room)
+    stopBots(room)
+
+    for (const [playerId, player] of room.players) {
+      if (player.isBot || !player.connected) room.players.delete(playerId)
+      else resetPlayer(player)
+    }
+
+    if (humanPlayers(room, true).length === 0) {
+      deleteRoom(room)
+      return
+    }
+
+    room.status = 'waiting'
+    room.sentence = ''
+    room.packId = ''
+    room.packLabel = ''
+    room.startsAt = null
+    room.waitingEndsAt = null
+    room.finishOrder = []
+    room.rematchVotes.clear()
+    assignHost(room)
+
+    if (room.mode === 'quick') scheduleQuickStart(room)
+    emitLobby(room)
+  }
+
+  function leaveRoom(socket: Socket) {
     const roomId = socketRooms.get(socket.id)
     if (!roomId) return
 
@@ -243,13 +464,28 @@ export function registerRaceHandlers(io: Server) {
     }
 
     room.players.delete(socket.id)
-    if (room.players.size === 0) {
+    room.rematchVotes.delete(socket.id)
+    assignHost(room)
+
+    if (humanPlayers(room, true).length === 0) {
       deleteRoom(room)
     } else if (room.status === 'waiting') {
       emitLobby(room)
     } else if (room.status === 'countdown') {
       emitCountdown(room)
+    } else if (room.status === 'finished') {
+      emitRematch(room)
+      const required = humanPlayers(room, true).length
+      if (required > 0 && room.rematchVotes.size >= required) prepareRematch(room)
     }
+  }
+
+  function acknowledgeJoin(
+    acknowledge: ((result: JoinResult) => void) | undefined,
+    player: RacePlayer,
+    room: RaceRoom,
+  ) {
+    acknowledge?.({ ok: true, playerId: player.id, roomCode: room.code })
   }
 
   io.on('connection', (socket) => {
@@ -263,42 +499,81 @@ export function registerRaceHandlers(io: Server) {
         }
 
         leaveRoom(socket)
-
         const room = [...rooms.values()].find(
-          (candidate) => candidate.status === 'waiting' && candidate.players.size < MAX_PLAYERS,
-        ) ?? createRoom()
+          (candidate) => candidate.mode === 'quick'
+            && candidate.status === 'waiting'
+            && candidate.players.size < MAX_PLAYERS,
+        ) ?? createRoom('quick')
+        const player = addHuman(socket, room, requestedName)
 
-        const existingNames = new Set(
-          [...room.players.values()].map((player) => player.name.toLowerCase()),
-        )
-        let name = requestedName
-        let suffix = 2
-        while (existingNames.has(name.toLowerCase())) {
-          name = `${requestedName.slice(0, 15)} ${suffix}`
-          suffix += 1
-        }
-
-        room.players.set(socket.id, {
-          id: socket.id,
-          name,
-          typedText: '',
-          correctCharacters: 0,
-          correctKeystrokes: 0,
-          totalKeystrokes: 0,
-          finishedAt: null,
-          placement: null,
-          connected: true,
-          disconnectedAt: null,
-        })
-        socketRooms.set(socket.id, room.id)
-        socket.join(room.id)
-
-        acknowledge?.({ ok: true, playerId: socket.id })
+        acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)
+        if (room.players.size === MAX_PLAYERS) startCountdown(room)
+      },
+    )
 
-        if (room.players.size === MAX_PLAYERS) {
-          startCountdown(room)
+    socket.on(
+      'private:create',
+      (payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
+        const requestedName = sanitizeName(payload?.name)
+        if (!requestedName) {
+          acknowledge?.({ ok: false, error: 'Enter a racer name first.' })
+          return
         }
+
+        leaveRoom(socket)
+        const room = createRoom('private', generateRoomCode())
+        const player = addHuman(socket, room, requestedName)
+        room.hostId = player.id
+
+        acknowledgeJoin(acknowledge, player, room)
+        emitLobby(room)
+      },
+    )
+
+    socket.on(
+      'private:join',
+      (payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
+        const requestedName = sanitizeName(payload?.name)
+        const code = sanitizeCode(payload?.code)
+        const room = rooms.get(`private-${code}`)
+
+        if (!requestedName) {
+          acknowledge?.({ ok: false, error: 'Enter a racer name first.' })
+          return
+        }
+        if (code.length !== 4 || !room) {
+          acknowledge?.({ ok: false, error: 'That room code does not exist.' })
+          return
+        }
+        if (room.status !== 'waiting' || room.players.size >= MAX_PLAYERS) {
+          acknowledge?.({ ok: false, error: 'That room is already racing or full.' })
+          return
+        }
+
+        leaveRoom(socket)
+        const player = addHuman(socket, room, requestedName)
+        acknowledgeJoin(acknowledge, player, room)
+        emitLobby(room)
+      },
+    )
+
+    socket.on(
+      'private:start',
+      (acknowledge?: (result: ActionResult) => void) => {
+        const roomId = socketRooms.get(socket.id)
+        const room = roomId ? rooms.get(roomId) : undefined
+        if (!room || room.mode !== 'private' || room.status !== 'waiting') {
+          acknowledge?.({ ok: false, error: 'This room cannot start right now.' })
+          return
+        }
+        if (room.hostId !== socket.id) {
+          acknowledge?.({ ok: false, error: 'Only the host can start this race.' })
+          return
+        }
+
+        acknowledge?.({ ok: true })
+        startCountdown(room)
       },
     )
 
@@ -310,36 +585,30 @@ export function registerRaceHandlers(io: Server) {
       if (
         !room
         || !player
+        || player.isBot
         || room.status !== 'racing'
         || room.startsAt === null
         || Date.now() < room.startsAt
-        || player.finishedAt !== null
         || typeof payload?.text !== 'string'
       ) {
         return
       }
 
-      const nextText = payload.text.slice(0, room.sentence.length + 1)
-      const sharedPrefixLength = countSharedPrefix(player.typedText, nextText)
+      applyTypedText(room, player, payload.text)
+    })
 
-      for (let index = sharedPrefixLength; index < nextText.length; index += 1) {
-        player.totalKeystrokes += 1
-        if (nextText[index] === room.sentence[index]) {
-          player.correctKeystrokes += 1
-        }
+    socket.on('race:rematch', () => {
+      const roomId = socketRooms.get(socket.id)
+      const room = roomId ? rooms.get(roomId) : undefined
+      const player = room?.players.get(socket.id)
+      if (!room || !player || player.isBot || !player.connected || room.status !== 'finished') {
+        return
       }
 
-      player.typedText = nextText
-      player.correctCharacters = countCorrectPrefix(nextText, room.sentence)
-
-      if (nextText === room.sentence) {
-        player.finishedAt = Date.now()
-        room.finishOrder.push(player.id)
-        player.placement = room.finishOrder.length
-      }
-
-      emitRaceState(room)
-      if (player.finishedAt !== null) maybeFinishRoom(room)
+      room.rematchVotes.add(player.id)
+      emitRematch(room)
+      const required = humanPlayers(room, true).length
+      if (required > 0 && room.rematchVotes.size >= required) prepareRematch(room)
     })
 
     socket.on('room:leave', () => leaveRoom(socket))

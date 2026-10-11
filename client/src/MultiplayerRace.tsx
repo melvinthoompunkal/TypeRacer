@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 
 type Phase = 'joining' | 'lobby' | 'countdown' | 'racing' | 'results'
+type RoomMode = 'quick' | 'private'
+
+export type MultiplayerEntry = {
+  kind: 'quick' | 'create' | 'join'
+  roomCode?: string
+}
 
 type LobbyPlayer = {
   id: string
@@ -10,9 +16,12 @@ type LobbyPlayer = {
 
 type LobbyState = {
   roomId: string
+  mode: RoomMode
+  roomCode: string | null
+  hostId: string | null
   players: LobbyPlayer[]
   maxPlayers: number
-  startsAt: number
+  startsAt: number | null
 }
 
 type RacerState = {
@@ -39,17 +48,20 @@ type RaceDetails = {
 }
 
 type JoinResult =
-  | { ok: true; playerId: string }
+  | { ok: true; playerId: string; roomCode: string | null }
+  | { ok: false; error: string }
+
+type ActionResult =
+  | { ok: true }
   | { ok: false; error: string }
 
 type ServerToClientEvents = {
   'lobby:update': (lobby: LobbyState) => void
-  'race:countdown': (
-    payload: RaceDetails & { racers: RacerState[] },
-  ) => void
+  'race:countdown': (payload: RaceDetails & { racers: RacerState[] }) => void
   'race:started': (payload: { startsAt: number }) => void
   'race:state': (payload: { racers: RacerState[] }) => void
   'race:results': (payload: { results: RaceResult[] }) => void
+  'rematch:update': (payload: { votes: number; required: number }) => void
 }
 
 type ClientToServerEvents = {
@@ -57,12 +69,23 @@ type ClientToServerEvents = {
     payload: { name: string },
     acknowledge: (result: JoinResult) => void,
   ) => void
+  'private:create': (
+    payload: { name: string },
+    acknowledge: (result: JoinResult) => void,
+  ) => void
+  'private:join': (
+    payload: { name: string; code: string },
+    acknowledge: (result: JoinResult) => void,
+  ) => void
+  'private:start': (acknowledge: (result: ActionResult) => void) => void
   'race:typed': (payload: { text: string }) => void
+  'race:rematch': () => void
   'room:leave': () => void
 }
 
 type MultiplayerRaceProps = {
   playerName: string
+  entry: MultiplayerEntry
   onExit: () => void
 }
 
@@ -75,7 +98,11 @@ function ordinal(value: number) {
   return `${value}th`
 }
 
-export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceProps) {
+export default function MultiplayerRace({
+  playerName,
+  entry,
+  onExit,
+}: MultiplayerRaceProps) {
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
     () => io({ autoConnect: false, reconnection: false }),
     [],
@@ -89,6 +116,8 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
   const [typed, setTyped] = useState('')
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState('')
+  const [rematch, setRematch] = useState({ votes: 0, required: 1 })
+  const [rematchVoted, setRematchVoted] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -97,18 +126,35 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
   }, [])
 
   useEffect(() => {
+    const acknowledgeJoin = (result: JoinResult) => {
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setPlayerId(result.playerId)
+    }
+
     const handleConnect = () => {
-      socket.emit('quick:join', { name: playerName }, (result) => {
-        if (!result.ok) {
-          setError(result.error)
-          return
-        }
-        setPlayerId(result.playerId)
-      })
+      if (entry.kind === 'create') {
+        socket.emit('private:create', { name: playerName }, acknowledgeJoin)
+      } else if (entry.kind === 'join') {
+        socket.emit(
+          'private:join',
+          { name: playerName, code: entry.roomCode ?? '' },
+          acknowledgeJoin,
+        )
+      } else {
+        socket.emit('quick:join', { name: playerName }, acknowledgeJoin)
+      }
     }
 
     const handleLobby = (nextLobby: LobbyState) => {
       setLobby(nextLobby)
+      setRace(null)
+      setRacers([])
+      setResults([])
+      setTyped('')
+      setRematchVoted(false)
       setPhase('lobby')
     }
 
@@ -147,6 +193,7 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
     socket.on('race:started', handleStarted)
     socket.on('race:state', handleState)
     socket.on('race:results', handleResults)
+    socket.on('rematch:update', setRematch)
     socket.connect()
 
     return () => {
@@ -154,7 +201,7 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
       socket.removeAllListeners()
       socket.disconnect()
     }
-  }, [playerName, socket])
+  }, [entry, playerName, socket])
 
   const self = racers.find((racer) => racer.id === playerId)
   const correctCount = useMemo(() => {
@@ -165,7 +212,9 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
   }, [race, typed])
   const hasError = Boolean(race && typed.length > correctCount)
   const countdown = race ? Math.max(0, Math.ceil((race.startsAt - now) / 1_000)) : 0
-  const lobbyWait = lobby ? Math.max(0, Math.ceil((lobby.startsAt - now) / 1_000)) : 0
+  const lobbyWait = lobby?.startsAt
+    ? Math.max(0, Math.ceil((lobby.startsAt - now) / 1_000))
+    : 0
 
   const handleInput = (rawValue: string) => {
     if (!race || phase !== 'racing' || self?.finished) return
@@ -190,6 +239,18 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
     socket.emit('race:typed', { text: accepted })
   }
 
+  const startPrivateRace = () => {
+    setError('')
+    socket.emit('private:start', (result) => {
+      if (!result.ok) setError(result.error)
+    })
+  }
+
+  const voteRematch = () => {
+    setRematchVoted(true)
+    socket.emit('race:rematch')
+  }
+
   const exitRace = () => {
     socket.emit('room:leave')
     onExit()
@@ -199,6 +260,8 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
     const slots = Array.from({ length: lobby?.maxPlayers ?? 4 }, (_, index) => (
       lobby?.players[index] ?? null
     ))
+    const isPrivate = lobby?.mode === 'private' || entry.kind !== 'quick'
+    const isHost = lobby?.hostId === playerId
 
     return (
       <main className="app-shell multiplayer-shell">
@@ -211,13 +274,27 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
         </nav>
 
         <section className="lobby-panel">
-          <span className="eyebrow">Quick match</span>
-          <h1>Finding your grid</h1>
+          <span className="eyebrow">{isPrivate ? 'Private room' : 'Quick match'}</span>
+          <h1>{isPrivate ? 'Friends on the grid' : 'Finding your grid'}</h1>
           <p>
             {phase === 'joining'
               ? 'Connecting to the race server…'
-              : `Race begins in about ${lobbyWait} second${lobbyWait === 1 ? '' : 's'}.`}
+              : isPrivate
+                ? isHost ? 'Share the code, then start when everyone is ready.' : 'Waiting for the host to start.'
+                : `Bots fill open slots in about ${lobbyWait} second${lobbyWait === 1 ? '' : 's'}.`}
           </p>
+
+          {isPrivate && lobby?.roomCode && (
+            <button
+              className="room-code"
+              onClick={() => navigator.clipboard?.writeText(lobby.roomCode ?? '')}
+              title="Copy room code"
+            >
+              <span>Room code</span>
+              <strong>{lobby.roomCode}</strong>
+              <small>Tap to copy</small>
+            </button>
+          )}
 
           {error && <div className="error-banner" role="alert">{error}</div>}
 
@@ -227,12 +304,24 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
                 <span className="slot-number">0{index + 1}</span>
                 <div className="racer-avatar">{player ? player.name[0].toUpperCase() : '?'}</div>
                 <strong>{player?.name ?? 'Waiting…'}</strong>
-                <small>{player ? 'Ready' : 'Open slot'}</small>
+                <small>
+                  {player
+                    ? player.id === lobby?.hostId ? 'Host' : 'Ready'
+                    : 'Open slot'}
+                </small>
               </div>
             ))}
           </div>
 
-          <div className="waiting-line"><i /><span>Matchmaking in progress</span></div>
+          {isPrivate && isHost ? (
+            <button className="primary-button lobby-start" onClick={startPrivateRace}>
+              Start race
+            </button>
+          ) : (
+            <div className="waiting-line">
+              <i /><span>{isPrivate ? 'Waiting for host' : 'Matchmaking in progress'}</span>
+            </div>
+          )}
         </section>
       </main>
     )
@@ -272,7 +361,11 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
                 key={result.id}
               >
                 <strong>{ordinal(result.placement)}</strong>
-                <span>{result.name}{result.id === playerId && <small> You</small>}</span>
+                <span>
+                  {result.name}
+                  {result.id === playerId && <small>You</small>}
+                  {result.isBot && <small className="cpu-tag">CPU</small>}
+                </span>
                 <strong>{result.wpm}</strong>
                 <span>{result.accuracy}%</span>
               </div>
@@ -280,7 +373,12 @@ export default function MultiplayerRace({ playerName, onExit }: MultiplayerRaceP
           </div>
 
           <div className="results-actions">
-            <button className="primary-button" onClick={exitRace}>Back to home</button>
+            <button className="primary-button" onClick={voteRematch} disabled={rematchVoted}>
+              {rematchVoted
+                ? `Waiting for racers (${rematch.votes}/${rematch.required})`
+                : 'Rematch'}
+            </button>
+            <button className="secondary-button" onClick={exitRace}>Back home</button>
           </div>
         </section>
       </main>

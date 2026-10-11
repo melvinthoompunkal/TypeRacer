@@ -1,6 +1,6 @@
 # TypeRacer
 
-A dark, mobile-friendly multiplayer typing race game. The current build includes the production-ready monorepo scaffold, complete practice mode, and live human quick matches for up to four racers.
+A dark, mobile-friendly multiplayer typing race game with solo practice, quick matches against human-like server bots, private room codes, and rematches.
 
 ## Run locally
 
@@ -31,7 +31,7 @@ Health check: `GET /health` returns `ok`.
 
 The client uses relative `/api` and Socket.IO URLs in production, so changing the Railway domain requires no code changes.
 
-Quick matches wait 3–5 seconds for up to four human racers, run a synchronized server-owned countdown, and stream authoritative progress, WPM, accuracy, and finish order. Bot fill and private rooms are the next build stages.
+Quick matches wait 3–5 seconds for human racers, fill open slots with 60–90 WPM server-simulated bots, run a synchronized countdown, and stream authoritative progress, WPM, accuracy, and finish order. Private rooms use four-letter codes and host-controlled starts. Rematches keep the human group together and reroll every bot.
 
 ## Configuration
 

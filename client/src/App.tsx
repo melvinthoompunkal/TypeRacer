@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import MultiplayerRace from './MultiplayerRace'
+import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
 
 type Screen = 'home' | 'practice' | 'multiplayer'
 
@@ -36,6 +36,8 @@ function App() {
   const [playerName, setPlayerName] = useState(
     () => window.localStorage.getItem('type-racer-name') ?? '',
   )
+  const [roomCode, setRoomCode] = useState('')
+  const [multiplayerEntry, setMultiplayerEntry] = useState<MultiplayerEntry>({ kind: 'quick' })
   const [packs, setPacks] = useState<Pack[]>([])
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
   const [round, setRound] = useState<PracticeRound | null>(null)
@@ -162,21 +164,32 @@ function App() {
     setError('')
   }
 
-  const startMultiplayer = () => {
+  const startMultiplayer = (entry: MultiplayerEntry) => {
     const name = playerName.trim()
     if (!name) {
-      setError('Enter a racer name before joining a quick match.')
+      setError('Enter a racer name before joining a race.')
+      return
+    }
+    if (entry.kind === 'join' && entry.roomCode?.length !== 4) {
+      setError('Enter the four-letter private room code.')
       return
     }
 
     window.localStorage.setItem('type-racer-name', name)
     setPlayerName(name)
+    setMultiplayerEntry(entry)
     setError('')
     setScreen('multiplayer')
   }
 
   if (screen === 'multiplayer') {
-    return <MultiplayerRace playerName={playerName} onExit={returnHome} />
+    return (
+      <MultiplayerRace
+        playerName={playerName}
+        entry={multiplayerEntry}
+        onExit={returnHome}
+      />
+    )
   }
 
   if (screen === 'practice' && round) {
@@ -298,19 +311,49 @@ function App() {
           <div className="mode-icon">🏁</div>
           <span className="eyebrow">Live now</span>
           <h2>Race</h2>
-          <p>Jump into a quick match and race up to three other typists live.</p>
+          <p>Race a full grid instantly, or open a private room for friends.</p>
           <div className="race-join">
             <input
+              className="racer-name-input"
               value={playerName}
               onChange={(event) => setPlayerName(event.target.value.slice(0, 18))}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') startMultiplayer()
+                if (event.key === 'Enter') startMultiplayer({ kind: 'quick' })
               }}
               placeholder="Your racer name"
               aria-label="Your racer name"
               maxLength={18}
             />
-            <button className="primary-button" onClick={startMultiplayer}>Quick match</button>
+            <div className="race-buttons">
+              <button className="primary-button" onClick={() => startMultiplayer({ kind: 'quick' })}>
+                Quick match
+              </button>
+              <button className="secondary-button" onClick={() => startMultiplayer({ kind: 'create' })}>
+                Create room
+              </button>
+            </div>
+            <div className="private-join">
+              <input
+                value={roomCode}
+                onChange={(event) => setRoomCode(
+                  event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4),
+                )}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    startMultiplayer({ kind: 'join', roomCode })
+                  }
+                }}
+                placeholder="CODE"
+                aria-label="Private room code"
+                maxLength={4}
+              />
+              <button
+                className="text-button"
+                onClick={() => startMultiplayer({ kind: 'join', roomCode })}
+              >
+                Join room
+              </button>
+            </div>
           </div>
         </article>
       </section>

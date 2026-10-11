@@ -150,7 +150,7 @@ button { color: inherit; }
 }
 
 .mode-card.disabled { opacity: 0.62; }
-.mode-card.race-mode { border-color: rgba(157, 123, 255, 0.35); }
+.mode-card.race-mode { min-height: 390px; border-color: rgba(157, 123, 255, 0.35); }
 .mode-icon { font-size: 29px; margin-bottom: 35px; }
 .mode-card h2 { margin: 0; font-size: 34px; letter-spacing: -0.04em; }
 .mode-card p { color: var(--muted); max-width: 410px; line-height: 1.6; }
@@ -163,6 +163,7 @@ button { color: inherit; }
   right: 32px;
   bottom: 27px;
   display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -178,7 +179,12 @@ button { color: inherit; }
 }
 
 .race-join input:focus { border-color: var(--purple); }
+.race-buttons, .private-join { display: flex; gap: 8px; }
+.race-buttons > button { flex: 1; }
 .race-join .primary-button { background: var(--purple); color: #fff; white-space: nowrap; }
+.private-join input { max-width: 90px; text-align: center; text-transform: uppercase; letter-spacing: 0.18em; font-family: 'DM Mono', monospace; font-weight: 700; }
+.private-join .text-button { flex: 1; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; text-align: left; }
+.private-join .text-button:hover { border-color: var(--line); background: rgba(255, 255, 255, 0.03); }
 
 .packs-section { padding: 92px 0 70px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 25px; }
@@ -309,6 +315,25 @@ footer { padding: 26px 0 38px; color: #656c7c; border-top: 1px solid rgba(255, 2
 .lobby-panel > p, .results-panel > p { margin: 16px 0 42px; color: var(--muted); }
 .lobby-panel .error-banner { max-width: 680px; margin: 0 auto 24px; }
 
+.room-code {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: -18px auto 30px;
+  padding: 12px 16px;
+  color: var(--muted);
+  border: 1px solid rgba(157, 123, 255, 0.28);
+  border-radius: 12px;
+  background: rgba(157, 123, 255, 0.07);
+  cursor: pointer;
+}
+
+.room-code span, .room-code small { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.room-code strong { color: #fff; font: 24px 'DM Mono', monospace; letter-spacing: 0.17em; }
+.room-code small { color: var(--purple); }
+.lobby-start { margin-top: 28px; min-width: 180px; }
+
 .lobby-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -370,6 +395,7 @@ footer { padding: 26px 0 38px; color: #656c7c; border-top: 1px solid rgba(255, 2
 .result-heading { min-height: 42px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .result-row > :nth-child(3), .result-row > :nth-child(4) { text-align: right; }
 .result-row small { margin-left: 6px; color: var(--lime); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.result-row .cpu-tag { color: var(--purple); }
 .results-actions { display: flex; justify-content: center; gap: 10px; margin-top: 24px; }
 
 .celebration { position: fixed; inset: 0; z-index: 10; pointer-events: none; overflow: hidden; }
@@ -394,6 +420,7 @@ footer { padding: 26px 0 38px; color: #656c7c; border-top: 1px solid rgba(255, 2
   .hero p { font-size: 15px; }
   .mode-grid, .pack-grid { grid-template-columns: 1fr; }
   .mode-card { min-height: 245px; padding: 25px; }
+  .mode-card.race-mode { min-height: 405px; }
   .race-join { left: 25px; right: 25px; bottom: 23px; }
   .packs-section { padding-top: 64px; }
   .pack-copy small { font-size: 11px; }
@@ -417,6 +444,8 @@ footer { padding: 26px 0 38px; color: #656c7c; border-top: 1px solid rgba(255, 2
   .track-name { align-items: flex-start; flex-direction: column; gap: 2px; }
   .multiplayer-track .car { font-size: 21px; top: -23px; }
   .result-row { grid-template-columns: 55px 1fr 58px 72px; gap: 8px; padding: 0 12px; font-size: 12px; }
+  .results-actions { align-items: stretch; flex-direction: column; }
+  .room-code { grid-template-columns: 1fr; gap: 4px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
