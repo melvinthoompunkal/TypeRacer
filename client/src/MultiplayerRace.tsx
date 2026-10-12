@@ -40,6 +40,7 @@ type LobbyState = {
 type RacerState = {
   id: string
   name: string
+  carId: string
   progress: number
   wpm: number
   accuracy: number
@@ -52,6 +53,11 @@ type RacerState = {
 type RaceResult = RacerState & {
   placement: number
   isBot: boolean
+  ranked: boolean
+  eloDelta: number
+  creditsEarned: number
+  elo: number | null
+  credits: number | null
 }
 
 type RaceDetails = {
@@ -447,6 +453,23 @@ export default function MultiplayerRace({
           <h1>{won ? 'You took the win!' : `${ordinal(ownResult?.placement ?? results.length)} place`}</h1>
           <p>{won ? 'Fast fingers, clean finish.' : 'Another lap is waiting when you are.'}</p>
 
+          {ownResult?.ranked && (
+            <div className="race-rewards" aria-label="Race rewards">
+              <div>
+                <span>ELO</span>
+                <strong className={ownResult.eloDelta >= 0 ? 'reward-positive' : 'reward-negative'}>
+                  {ownResult.eloDelta >= 0 ? '+' : ''}{ownResult.eloDelta}
+                </strong>
+                <small>{ownResult.elo} total</small>
+              </div>
+              <div>
+                <span>Race credits</span>
+                <strong className="reward-positive">+{ownResult.creditsEarned}</strong>
+                <small>{ownResult.credits} available</small>
+              </div>
+            </div>
+          )}
+
           <div className="results-table">
             <div className="result-row result-heading">
               <span>Place</span><span>Racer</span><span>WPM</span><span>Accuracy</span>
@@ -531,6 +554,7 @@ export default function MultiplayerRace({
                 <RaceCar
                   progress={racer.progress}
                   color={racerColor(index)}
+                  carId={racer.carId}
                   active={phase === 'racing' && racer.connected && !racer.finished}
                   finished={racer.finished}
                 />

@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { Server } from 'socket.io'
 import { authRouter, getAuthenticatedUser, initializeAuthDatabase } from './auth.js'
 import { config } from './config.js'
+import {
+  initializeProgressionDatabase,
+  profileRouter,
+} from './progression.js'
 import { registerRaceHandlers } from './raceManager.js'
 import {
   getPackSummaries,
@@ -31,7 +35,10 @@ io.use(async (socket, next) => {
       next(new Error('Authentication required.'))
       return
     }
-    socket.data.user = user
+    socket.data.user = {
+      ...user,
+      carId: user.equippedCar,
+    }
     next()
   } catch {
     next(new Error('Could not verify your login.'))
@@ -44,6 +51,7 @@ app.disable('x-powered-by')
 app.set('trust proxy', 1)
 app.use(express.json())
 app.use('/api/auth', authRouter)
+app.use('/api/profile', profileRouter)
 
 app.get('/health', (_request, response) => {
   response.type('text/plain').send('ok')
@@ -106,6 +114,7 @@ httpServer.on('error', (error: NodeJS.ErrnoException) => {
 })
 
 initializeAuthDatabase()
+  .then(() => initializeProgressionDatabase())
   .then(() => {
     httpServer.listen(config.port, config.host, () => {
       console.log(`TypeRacer server listening on ${config.host}:${config.port}`)

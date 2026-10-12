@@ -9,6 +9,7 @@ import {
 } from 'react'
 import AuthScreen, { type AuthUser } from './AuthScreen'
 import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
+import ProfileStore from './ProfileStore'
 import {
   playGameSound,
   primeGameAudio,
@@ -23,7 +24,7 @@ import {
   getNextWordStart,
 } from './typingMechanics'
 
-type Screen = 'home' | 'practice-setup' | 'practice' | 'multiplayer'
+type Screen = 'home' | 'practice-setup' | 'practice' | 'multiplayer' | 'profile'
 type PracticeModeType = 'words' | 'time'
 
 type PracticeMode = {
@@ -441,6 +442,23 @@ function App() {
     )
   }
 
+  if (screen === 'profile' && !user.isGuest) {
+    return (
+      <ProfileStore
+        username={user.username}
+        soundEnabled={soundEnabled}
+        onToggleSound={toggleSound}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onBack={returnHome}
+        onLogout={logout}
+        onCarEquipped={(carId) => setUser((current) => (
+          current ? { ...current, equippedCar: carId } : current
+        ))}
+      />
+    )
+  }
+
   if (screen === 'practice-setup' && selectedPack) {
     const selectedPackLabel = packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
     const options = PRACTICE_OPTIONS[practiceMode.type]
@@ -580,7 +598,12 @@ function App() {
 
           <div className="track" aria-label={`${Math.round(progress)} percent complete`}>
             <div className="track-fill" style={{ width: `${progress}%` }} />
-            <RaceCar progress={progress} active={startedAt !== null && finishedAt === null} finished={finishedAt !== null} />
+            <RaceCar
+              progress={progress}
+              carId={user.equippedCar}
+              active={startedAt !== null && finishedAt === null}
+              finished={finishedAt !== null}
+            />
             <div className="finish-line" aria-hidden="true" />
           </div>
 
@@ -691,6 +714,9 @@ function App() {
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
           <ThemeButton theme={theme} onToggle={toggleTheme} />
           <span className="account-name">@{user.username}</span>
+          {!user.isGuest && (
+            <button className="text-button" onClick={() => setScreen('profile')}>Profile & store</button>
+          )}
           <button className="text-button" onClick={logout}>Log out</button>
         </div>
       </nav>

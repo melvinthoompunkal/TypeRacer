@@ -19,6 +19,7 @@ export type AuthUser = {
   id: string
   username: string
   isGuest: boolean
+  equippedCar: string
 }
 
 type UserRow = AuthUser & {
@@ -38,6 +39,10 @@ const pool = config.databaseUrl
       ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
     })
   : null
+
+export function getDatabasePool() {
+  return pool
+}
 
 function scryptPassword(password: string, salt: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -225,9 +230,11 @@ export async function getAuthenticatedUser(cookieHeader: string | undefined): Pr
   if (!token) return null
 
   const result = await pool.query<AuthUser>(
-    `SELECT users.id, users.display_name AS username, users.is_guest AS "isGuest"
+    `SELECT users.id, users.display_name AS username, users.is_guest AS "isGuest",
+            COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar"
      FROM auth_sessions
      JOIN users ON users.id = auth_sessions.user_id
+     LEFT JOIN user_profiles ON user_profiles.user_id = users.id
      WHERE auth_sessions.token_hash = $1 AND auth_sessions.expires_at > NOW()`,
     [hashSessionToken(token)],
   )
@@ -266,7 +273,12 @@ authRouter.post('/register', async (request, response, next) => {
   try {
     client = await database.connect()
     const passwordHash = await hashPassword(password)
-    const user: AuthUser = { id: randomUUID(), username, isGuest: false }
+    const user: AuthUser = {
+      id: randomUUID(),
+      username,
+      isGuest: false,
+      equippedCar: 'classic',
+    }
     await client.query('BEGIN')
     await client.query(
       `INSERT INTO users (id, username, display_name, password_hash)
@@ -308,8 +320,12 @@ authRouter.post('/login', async (request, response, next) => {
 
   try {
     const result = await database.query<UserRow>(
-      `SELECT id, display_name AS username, password_hash, is_guest AS "isGuest"
-       FROM users WHERE username = $1 AND is_guest = FALSE`,
+      `SELECT users.id, users.display_name AS username, users.password_hash,
+              users.is_guest AS "isGuest",
+              COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar"
+       FROM users
+       LEFT JOIN user_profiles ON user_profiles.user_id = users.id
+       WHERE users.username = $1 AND users.is_guest = FALSE`,
       [username],
     )
     const row = result.rows[0]
@@ -328,7 +344,12 @@ authRouter.post('/login', async (request, response, next) => {
       clearAuthAttempts(request)
       sendUser(
         response,
-        { id: row.id, username: row.username, isGuest: row.isGuest },
+        {
+          id: row.id,
+          username: row.username,
+          isGuest: row.isGuest,
+          equippedCar: row.equippedCar,
+        },
         token,
       )
     } finally {
@@ -357,6 +378,7 @@ authRouter.post('/guest', async (request, response, next) => {
       id: randomUUID(),
       username: displayName,
       isGuest: true,
+      equippedCar: 'classic',
     }
     const internalUsername = `guest_${randomBytes(4).toString('hex')}`
 

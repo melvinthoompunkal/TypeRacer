@@ -115,6 +115,12 @@ export function ThemeButton({
 }
 
 const CAR_COLORS = ['#a15f15', '#222428', '#6e7075', '#a63d40']
+const CAR_SKINS: Record<string, { color: string; accent: string }> = {
+  classic: { color: CAR_COLORS[0], accent: '#f0c77a' },
+  blaze: { color: '#c74732', accent: '#ffd166' },
+  volt: { color: '#78a83b', accent: '#dfff72' },
+  phantom: { color: '#45356f', accent: '#bd9cff' },
+}
 
 export function racerColor(index: number) {
   return CAR_COLORS[index % CAR_COLORS.length]
@@ -123,26 +129,34 @@ export function racerColor(index: number) {
 export function RaceCar({
   progress,
   color = CAR_COLORS[0],
+  carId = 'classic',
   active = false,
   finished = false,
 }: {
   progress: number
   color?: string
+  carId?: string
   active?: boolean
   finished?: boolean
 }) {
+  const skin = CAR_SKINS[carId] ?? CAR_SKINS.classic
+  const carColor = carId === 'classic' ? color : skin.color
+
   return (
     <span
-      className={`race-car${active ? ' active' : ''}${finished ? ' finished' : ''}`}
+      className={`race-car car-${carId}${active ? ' active' : ''}${finished ? ' finished' : ''}`}
       style={{
         left: `${Math.min(Math.max(progress, 0), 96)}%`,
-        '--car-color': color,
+        '--car-color': carColor,
+        '--car-accent': skin.accent,
       } as CSSProperties}
       aria-hidden="true"
     >
       <svg viewBox="0 0 64 32" focusable="false">
         <path className="car-shadow" d="M9 25h46v3H9z" />
         <path className="car-body" d="M5 17h10l8-9h19l9 9h7c2 0 4 2 4 4v3H3v-3c0-2 1-4 2-4Z" />
+        <path className="car-accent" d="M7 18h48l3 3H5Z" />
+        <path className="car-spoiler" d="M47 9h12v3H48Z" />
         <path className="car-window" d="m25 10-6 7h14v-7Zm11 0v7h11l-7-7Z" />
         <circle className="car-wheel" cx="16" cy="24" r="5" />
         <circle className="car-wheel" cx="49" cy="24" r="5" />

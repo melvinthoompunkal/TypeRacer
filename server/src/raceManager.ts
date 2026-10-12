@@ -1,5 +1,6 @@
 import type { Server, Socket } from 'socket.io'
 import { createBotProfile, startBotTyping } from './botSimulator.js'
+import { applyRaceRewards } from './progression.js'
 import { getRandomRaceSentence } from './sentences.js'
 
 const MAX_PLAYERS = 4
@@ -14,7 +15,10 @@ type RoomMode = 'quick' | 'private'
 type RacePlayer = {
   id: string
   name: string
+  userId: string | null
+  isGuest: boolean
   isBot: boolean
+  carId: string
   targetWpm: number | null
   typedText: string
   correctCharacters: number
@@ -141,6 +145,7 @@ export function registerRaceHandlers(io: Server) {
     return {
       id: player.id,
       name: player.name,
+      carId: player.carId,
       progress: room.sentence.length === 0
         ? 0
         : Math.round((player.correctCharacters / room.sentence.length) * 10_000) / 100,
@@ -274,11 +279,21 @@ export function registerRaceHandlers(io: Server) {
     return name
   }
 
-  function addHuman(socket: Socket, room: RaceRoom, requestedName: string) {
+  function addHuman(
+    socket: Socket,
+    room: RaceRoom,
+    requestedName: string,
+    userId: string,
+    isGuest: boolean,
+    carId: string,
+  ) {
     const player: RacePlayer = {
       id: socket.id,
       name: uniqueHumanName(room, requestedName),
+      userId,
+      isGuest,
       isBot: false,
+      carId,
       targetWpm: null,
       typedText: '',
       correctCharacters: 0,
@@ -306,7 +321,10 @@ export function registerRaceHandlers(io: Server) {
     const bot: RacePlayer = {
       id: `bot-${roomSequence}-${botSequence}`,
       name: profile.name,
+      userId: null,
+      isGuest: false,
       isBot: true,
+      carId: 'classic',
       targetWpm: profile.targetWpm,
       typedText: '',
       correctCharacters: 0,
@@ -382,6 +400,55 @@ export function registerRaceHandlers(io: Server) {
       })
   }
 
+  async function finalizeRoomResults(
+    room: RaceRoom,
+    orderedPlayers: RacePlayer[],
+    rankedAt: number,
+  ) {
+    let rewards = new Map<string, {
+      eloDelta: number
+      creditsEarned: number
+      elo: number
+      credits: number
+    }>()
+    try {
+      rewards = await applyRaceRewards(
+        orderedPlayers
+          .filter((player) => (
+            orderedPlayers.length >= 2
+              && !player.isBot
+              && !player.isGuest
+              && player.userId
+          ))
+          .map((player) => ({
+            userId: player.userId as string,
+            placement: player.placement as number,
+            fieldSize: orderedPlayers.length,
+          })),
+      )
+    } catch (error) {
+      console.error('Could not apply race rewards:', error)
+    }
+
+    io.to(room.id).emit('race:results', {
+      results: orderedPlayers.map((player) => {
+        const reward = player.userId ? rewards.get(player.userId) : undefined
+        return {
+          ...getPlayerState(room, player, rankedAt),
+          placement: player.placement,
+          isBot: player.isBot,
+          ranked: Boolean(reward),
+          eloDelta: reward?.eloDelta ?? 0,
+          creditsEarned: reward?.creditsEarned ?? 0,
+          elo: reward?.elo ?? null,
+          credits: reward?.credits ?? null,
+        }
+      }),
+    })
+    emitRematch(room)
+    room.cleanupTimer = setTimeout(() => deleteRoom(room), ROOM_CLEANUP_MS)
+  }
+
   function finishRoom(room: RaceRoom) {
     if (room.status === 'finished') return
     room.status = 'finished'
@@ -411,15 +478,7 @@ export function registerRaceHandlers(io: Server) {
       player.placement = index + 1
     })
 
-    io.to(room.id).emit('race:results', {
-      results: orderedPlayers.map((player) => ({
-        ...getPlayerState(room, player),
-        placement: player.placement,
-        isBot: player.isBot,
-      })),
-    })
-    emitRematch(room)
-    room.cleanupTimer = setTimeout(() => deleteRoom(room), ROOM_CLEANUP_MS)
+    void finalizeRoomResults(room, orderedPlayers, rankedAt)
   }
 
   function maybeFinishRoom(room: RaceRoom) {
@@ -538,6 +597,9 @@ export function registerRaceHandlers(io: Server) {
 
   io.on('connection', (socket) => {
     const authenticatedName = String(socket.data.user?.username ?? '')
+    const authenticatedUserId = String(socket.data.user?.id ?? '')
+    const authenticatedIsGuest = Boolean(socket.data.user?.isGuest)
+    const equippedCar = String(socket.data.user?.carId ?? 'classic')
 
     socket.on(
       'quick:join',
@@ -553,7 +615,14 @@ export function registerRaceHandlers(io: Server) {
             && candidate.status === 'waiting'
             && candidate.players.size < MAX_PLAYERS,
         ) ?? createRoom('quick')
-        const player = addHuman(socket, room, authenticatedName)
+        const player = addHuman(
+          socket,
+          room,
+          authenticatedName,
+          authenticatedUserId,
+          authenticatedIsGuest,
+          equippedCar,
+        )
 
         acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)
@@ -571,7 +640,14 @@ export function registerRaceHandlers(io: Server) {
 
         leaveRoom(socket)
         const room = createRoom('private', generateRoomCode())
-        const player = addHuman(socket, room, authenticatedName)
+        const player = addHuman(
+          socket,
+          room,
+          authenticatedName,
+          authenticatedUserId,
+          authenticatedIsGuest,
+          equippedCar,
+        )
         room.hostId = player.id
 
         acknowledgeJoin(acknowledge, player, room)
@@ -599,7 +675,14 @@ export function registerRaceHandlers(io: Server) {
         }
 
         leaveRoom(socket)
-        const player = addHuman(socket, room, authenticatedName)
+        const player = addHuman(
+          socket,
+          room,
+          authenticatedName,
+          authenticatedUserId,
+          authenticatedIsGuest,
+          equippedCar,
+        )
         acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)
       },

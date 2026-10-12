@@ -1,0 +1,312 @@
+import { Router, type Request, type Response } from 'express'
+import type { Pool, PoolClient } from 'pg'
+import { getAuthenticatedUser, getDatabasePool } from './auth.js'
+
+export const CAR_CATALOG = [
+  {
+    id: 'classic',
+    name: 'Classic',
+    price: 0,
+    description: 'The original TypeRacer roadster.',
+    color: '#a15f15',
+    accent: '#f0c77a',
+  },
+  {
+    id: 'blaze',
+    name: 'Blaze',
+    price: 250,
+    description: 'Hot paint with a sharp racing stripe.',
+    color: '#c74732',
+    accent: '#ffd166',
+  },
+  {
+    id: 'volt',
+    name: 'Volt',
+    price: 450,
+    description: 'Electric lime built for late braking.',
+    color: '#78a83b',
+    accent: '#dfff72',
+  },
+  {
+    id: 'phantom',
+    name: 'Phantom',
+    price: 700,
+    description: 'A midnight body with a violet glow.',
+    color: '#45356f',
+    accent: '#bd9cff',
+  },
+] as const
+
+type CarId = (typeof CAR_CATALOG)[number]['id']
+
+type ProfileRow = {
+  elo: number
+  credits: number
+  racesPlayed: number
+  wins: number
+  podiums: number
+  equippedCar: CarId
+}
+
+export type RaceRewardInput = {
+  userId: string
+  placement: number
+  fieldSize: number
+}
+
+export type RaceReward = {
+  eloDelta: number
+  creditsEarned: number
+  elo: number
+  credits: number
+}
+
+function findCar(value: unknown) {
+  return typeof value === 'string'
+    ? CAR_CATALOG.find((car) => car.id === value)
+    : undefined
+}
+
+async function ensureProfile(database: Pool | PoolClient, userId: string) {
+  await database.query(
+    `INSERT INTO user_profiles (user_id) VALUES ($1)
+     ON CONFLICT (user_id) DO NOTHING`,
+    [userId],
+  )
+}
+
+async function loadProfile(database: Pool | PoolClient, userId: string) {
+  await ensureProfile(database, userId)
+  const profileResult = await database.query<ProfileRow>(
+    `SELECT elo, credits, races_played AS "racesPlayed", wins, podiums,
+            equipped_car AS "equippedCar"
+     FROM user_profiles WHERE user_id = $1`,
+    [userId],
+  )
+  const ownedResult = await database.query<{ carId: CarId }>(
+    `SELECT car_id AS "carId" FROM user_cars
+     WHERE user_id = $1 ORDER BY purchased_at`,
+    [userId],
+  )
+
+  return {
+    ...profileResult.rows[0],
+    ownedCars: ['classic', ...ownedResult.rows.map(({ carId }) => carId)] as CarId[],
+  }
+}
+
+async function getRegisteredUser(request: Request, response: Response) {
+  const database = getDatabasePool()
+  if (!database) {
+    response.status(503).json({ error: 'The progression database is unavailable.' })
+    return null
+  }
+
+  const user = await getAuthenticatedUser(request.headers.cookie)
+  if (!user) {
+    response.status(401).json({ error: 'Log in to view your profile.' })
+    return null
+  }
+  if (user.isGuest) {
+    response.status(403).json({ error: 'Create an account to earn ELO and unlock cars.' })
+    return null
+  }
+  return { database, user }
+}
+
+function calculateEloDelta(placement: number, fieldSize: number) {
+  if (fieldSize < 2) return 0
+  const actualScore = 1 - ((placement - 1) / (fieldSize - 1))
+  return Math.round(40 * (actualScore - 0.5))
+}
+
+function calculateCredits(placement: number) {
+  return [60, 40, 25, 15][placement - 1] ?? 10
+}
+
+export async function initializeProgressionDatabase() {
+  const database = getDatabasePool()
+  if (!database) return
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      elo INTEGER NOT NULL DEFAULT 1000 CHECK (elo >= 0),
+      credits INTEGER NOT NULL DEFAULT 0 CHECK (credits >= 0),
+      races_played INTEGER NOT NULL DEFAULT 0 CHECK (races_played >= 0),
+      wins INTEGER NOT NULL DEFAULT 0 CHECK (wins >= 0),
+      podiums INTEGER NOT NULL DEFAULT 0 CHECK (podiums >= 0),
+      equipped_car VARCHAR(32) NOT NULL DEFAULT 'classic',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS user_cars (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      car_id VARCHAR(32) NOT NULL,
+      purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, car_id)
+    );
+
+    INSERT INTO user_profiles (user_id)
+    SELECT id FROM users WHERE is_guest = FALSE
+    ON CONFLICT (user_id) DO NOTHING;
+  `)
+  console.log('Progression database ready.')
+}
+
+export async function applyRaceRewards(inputs: RaceRewardInput[]) {
+  const rewards = new Map<string, RaceReward>()
+  const database = getDatabasePool()
+  if (!database) return rewards
+
+  const uniqueInputs = [...inputs]
+    .sort((left, right) => left.placement - right.placement)
+    .filter((input, index, all) => (
+      all.findIndex((candidate) => candidate.userId === input.userId) === index
+    ))
+  if (uniqueInputs.length === 0) return rewards
+
+  const client = await database.connect()
+  try {
+    await client.query('BEGIN')
+    for (const input of uniqueInputs) {
+      await ensureProfile(client, input.userId)
+      const currentResult = await client.query<{ elo: number; credits: number }>(
+        'SELECT elo, credits FROM user_profiles WHERE user_id = $1 FOR UPDATE',
+        [input.userId],
+      )
+      const current = currentResult.rows[0]
+      const requestedDelta = calculateEloDelta(input.placement, input.fieldSize)
+      const nextElo = Math.max(0, current.elo + requestedDelta)
+      const eloDelta = nextElo - current.elo
+      const creditsEarned = input.fieldSize >= 2 ? calculateCredits(input.placement) : 0
+      const updatedResult = await client.query<{ elo: number; credits: number }>(
+        `UPDATE user_profiles
+         SET elo = $2,
+             credits = credits + $3,
+             races_played = races_played + 1,
+             wins = wins + CASE WHEN $4 = 1 THEN 1 ELSE 0 END,
+             podiums = podiums + CASE WHEN $4 <= 3 THEN 1 ELSE 0 END,
+             updated_at = NOW()
+         WHERE user_id = $1
+         RETURNING elo, credits`,
+        [input.userId, nextElo, creditsEarned, input.placement],
+      )
+      rewards.set(input.userId, {
+        eloDelta,
+        creditsEarned,
+        elo: updatedResult.rows[0].elo,
+        credits: updatedResult.rows[0].credits,
+      })
+    }
+    await client.query('COMMIT')
+    return rewards
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+export const profileRouter = Router()
+
+profileRouter.get('/', async (request, response, next) => {
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const profile = await loadProfile(authenticated.database, authenticated.user.id)
+    response.set('Cache-Control', 'no-store').json({
+      user: authenticated.user,
+      profile,
+      cars: CAR_CATALOG,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+profileRouter.post('/purchase', async (request, response, next) => {
+  let client: PoolClient | null = null
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const car = findCar(request.body?.carId)
+    if (!car || car.id === 'classic') {
+      response.status(400).json({ error: 'That car is not available for purchase.' })
+      return
+    }
+
+    client = await authenticated.database.connect()
+    await client.query('BEGIN')
+    await ensureProfile(client, authenticated.user.id)
+    const profileResult = await client.query<{ credits: number }>(
+      'SELECT credits FROM user_profiles WHERE user_id = $1 FOR UPDATE',
+      [authenticated.user.id],
+    )
+    const ownedResult = await client.query(
+      'SELECT 1 FROM user_cars WHERE user_id = $1 AND car_id = $2',
+      [authenticated.user.id, car.id],
+    )
+    if (ownedResult.rowCount) {
+      await client.query('ROLLBACK')
+      response.status(409).json({ error: 'You already own that car.' })
+      return
+    }
+    if (profileResult.rows[0].credits < car.price) {
+      await client.query('ROLLBACK')
+      response.status(400).json({ error: `You need ${car.price} credits for that car.` })
+      return
+    }
+
+    await client.query(
+      'UPDATE user_profiles SET credits = credits - $2, updated_at = NOW() WHERE user_id = $1',
+      [authenticated.user.id, car.price],
+    )
+    await client.query(
+      'INSERT INTO user_cars (user_id, car_id) VALUES ($1, $2)',
+      [authenticated.user.id, car.id],
+    )
+    const profile = await loadProfile(client, authenticated.user.id)
+    await client.query('COMMIT')
+    response.json({ profile })
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK') } catch { /* Preserve the original error. */ }
+    }
+    next(error)
+  } finally {
+    client?.release()
+  }
+})
+
+profileRouter.post('/equip', async (request, response, next) => {
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const car = findCar(request.body?.carId)
+    if (!car) {
+      response.status(400).json({ error: 'That car does not exist.' })
+      return
+    }
+    if (car.id !== 'classic') {
+      const owned = await authenticated.database.query(
+        'SELECT 1 FROM user_cars WHERE user_id = $1 AND car_id = $2',
+        [authenticated.user.id, car.id],
+      )
+      if (!owned.rowCount) {
+        response.status(403).json({ error: 'Purchase that car before equipping it.' })
+        return
+      }
+    }
+
+    await ensureProfile(authenticated.database, authenticated.user.id)
+    await authenticated.database.query(
+      'UPDATE user_profiles SET equipped_car = $2, updated_at = NOW() WHERE user_id = $1',
+      [authenticated.user.id, car.id],
+    )
+    response.json({ profile: await loadProfile(authenticated.database, authenticated.user.id) })
+  } catch (error) {
+    next(error)
+  }
+})

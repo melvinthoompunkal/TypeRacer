@@ -217,6 +217,44 @@ button:focus-visible, input:focus-visible {
 .auth-loading { display: grid; place-content: center; justify-items: center; gap: 14px; }
 .auth-loading p { color: var(--muted); }
 
+.profile-shell { padding-bottom: 80px; }
+.profile-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; padding: 70px 0 34px; }
+.profile-heading h1 { margin: 0; font-size: clamp(42px, 6vw, 68px); letter-spacing: -0.055em; }
+.profile-heading p { max-width: 620px; margin: 15px 0 0; color: var(--muted); line-height: 1.65; }
+.credit-balance { min-width: 150px; padding: 18px 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: right; }
+.credit-balance span { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.credit-balance strong { color: var(--lime); font: 700 30px 'DM Mono', monospace; }
+.profile-loading { padding: 50px; color: var(--muted); text-align: center; }
+.profile-stats { display: grid; grid-template-columns: 1.4fr repeat(4, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.profile-stats article { display: grid; align-content: center; min-height: 120px; padding: 22px; border-right: 1px solid var(--line); }
+.profile-stats article:last-child { border-right: 0; }
+.profile-stats span { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.profile-stats strong { margin-top: 4px; font: 700 27px 'DM Mono', monospace; }
+.profile-stats small { margin-top: 3px; color: var(--lime); font: 600 11px 'DM Mono', monospace; }
+.rank-card { background: linear-gradient(135deg, rgba(180, 110, 27, 0.13), transparent); }
+.garage-section { padding-top: 70px; }
+.car-store-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.store-car { display: grid; grid-template-columns: 140px 1fr; gap: 20px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); transition: transform 180ms ease, border-color 180ms ease; }
+.store-car:hover { transform: translateY(-2px); border-color: #b8ad9c; }
+.store-car.equipped { border-color: color-mix(in srgb, var(--lime) 55%, var(--line)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lime) 20%, transparent); }
+.store-car-preview { position: relative; min-height: 105px; overflow: hidden; border-radius: 13px; background: var(--surface-light); }
+.store-car-preview .preview-road { position: absolute; left: 14px; right: 14px; top: 67px; height: 5px; border-radius: 999px; background: repeating-linear-gradient(90deg, #c9c0b1 0 16px, #e5dec6 16px 32px); }
+.store-car-preview .race-car { top: 39px; width: 72px; }
+.store-car-copy h3 { margin: 0; font-size: 21px; letter-spacing: -0.035em; }
+.store-car-copy > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.store-car-copy > div span { color: var(--lime); font: 600 10px 'DM Mono', monospace; white-space: nowrap; }
+.store-car-copy p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.store-car > button { grid-column: 1 / -1; width: 100%; }
+.store-car .secondary-button:disabled { color: var(--lime); opacity: 1; cursor: default; }
+
+.race-rewards { display: grid; grid-template-columns: repeat(2, minmax(150px, 220px)); justify-content: center; gap: 10px; margin: 26px auto 0; }
+.race-rewards > div { display: grid; padding: 15px 18px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); text-align: left; }
+.race-rewards span { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.race-rewards strong { font: 700 24px 'DM Mono', monospace; }
+.race-rewards small { color: var(--muted); font-size: 10px; }
+.reward-positive { color: var(--green); }
+.reward-negative { color: var(--red); }
+
 .mode-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; }
 
 .mode-card {
@@ -389,6 +427,11 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 .race-car { position: absolute; z-index: 1; top: -29px; width: 48px; height: 26px; transform: translateX(-38%); transition: left 180ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 180ms ease; }
 .race-car svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .race-car .car-body { fill: var(--car-color); stroke: rgba(247, 243, 235, 0.52); stroke-width: 1; }
+.race-car .car-accent { fill: var(--car-accent); opacity: 0.82; }
+.race-car .car-spoiler { display: none; fill: var(--car-accent); }
+.race-car.car-classic .car-accent { display: none; }
+.race-car.car-volt .car-spoiler, .race-car.car-phantom .car-spoiler { display: block; }
+.race-car.car-phantom .car-window { fill: #17121f; }
 .race-car .car-window { fill: #34363a; }
 .race-car .car-wheel { fill: #181a1d; stroke: #6e7075; stroke-width: 1.5; }
 .race-car .car-hub { fill: #ede6da; }
@@ -661,6 +704,7 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 }
 :root[data-theme='dark'] .auth-form input { background: #181a1d; }
 :root[data-theme='dark'] .racer-identity { background: rgba(29, 32, 35, 0.72); }
+:root[data-theme='dark'] .store-car-preview .preview-road { background: repeating-linear-gradient(90deg, #3b4045 0 16px, #292d31 16px 32px); }
 
 :root[data-theme='dark'] .private-join .text-button:hover,
 :root[data-theme='dark'] .room-code,
@@ -671,6 +715,8 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 
 :root[data-theme='dark'] .setup-card,
 :root[data-theme='dark'] .auth-card,
+:root[data-theme='dark'] .profile-stats,
+:root[data-theme='dark'] .store-car,
 :root[data-theme='dark'] .race-card,
 :root[data-theme='dark'] .racer-tracks {
   background: rgba(29, 32, 35, 0.94);
@@ -733,6 +779,13 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
   .auth-intro h1 { font-size: clamp(44px, 13vw, 62px); }
   .auth-intro p { font-size: 15px; }
   .auth-card { padding: 23px; }
+  .profile-heading { align-items: stretch; flex-direction: column; padding: 48px 0 25px; }
+  .credit-balance { text-align: left; }
+  .profile-stats { grid-template-columns: repeat(2, 1fr); }
+  .profile-stats article { min-height: 100px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .profile-stats article:nth-child(2n) { border-right: 0; }
+  .profile-stats article:last-child { grid-column: 1 / -1; border-bottom: 0; }
+  .car-store-grid { grid-template-columns: 1fr; }
   .mode-grid, .pack-grid { grid-template-columns: 1fr; }
   .mode-card { min-height: 245px; padding: 25px; }
   .mode-card.race-mode { min-height: 430px; }
@@ -770,9 +823,13 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 
 @media (max-width: 480px) {
   .nav-actions { gap: 10px; }
+  .topbar .brand > span:last-child { display: none; }
   .sound-button > span:last-child, .theme-button > span:last-child { display: none; }
   .sound-button, .theme-button { width: 34px; height: 34px; justify-content: center; padding: 0; }
   .account-name { display: none; }
+  .store-car { grid-template-columns: 110px 1fr; gap: 14px; padding: 16px; }
+  .store-car-preview .race-car { width: 58px; }
+  .race-rewards { grid-template-columns: 1fr; }
   .length-options { grid-template-columns: repeat(2, 1fr); }
   .race-pack { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .racer-track-row { grid-template-columns: 72px 1fr 30px; gap: 8px; padding: 0 4px; }

@@ -41,6 +41,10 @@ The client uses relative `/api` and Socket.IO URLs in production, so changing th
 
 Quick matches wait 3–5 seconds for human racers, fill open slots with 60–90 WPM server-simulated bots, run a synchronized countdown, and stream authoritative progress, WPM, accuracy, and finish order. Private rooms use four-letter codes and host-controlled starts. Rematches keep the human group together and reroll every bot.
 
+## Account progression
+
+Registered racers begin at 1000 ELO. Multiplayer placement changes ELO on a normalized curve and also awards spendable Race Credits; ELO itself is never spent, so cosmetics cannot lower a competitive rank. The profile and store screen tracks races, wins, podiums, and win rate, and lets players purchase and equip car skins. Guests can race normally but do not receive persistent progression or store currency.
+
 ## Configuration
 
 Copy `.env.example` values into your shell or hosting provider when overrides are needed:
