@@ -43,6 +43,7 @@ type RacerState = {
   progress: number
   wpm: number
   accuracy: number
+  score: number
   finished: boolean
   placement: number | null
   connected: boolean
@@ -447,6 +448,7 @@ export default function MultiplayerRace({
           <div className="results-table">
             <div className="result-row result-heading">
               <span>Place</span><span>Racer</span><span>WPM</span><span>Accuracy</span>
+              <span title="WPM multiplied by accuracy squared">Score</span>
             </div>
             {results.map((result) => (
               <div
@@ -463,6 +465,7 @@ export default function MultiplayerRace({
                 </span>
                 <strong>{result.wpm}</strong>
                 <span>{result.accuracy}%</span>
+                <strong>{result.score.toFixed(1)}</strong>
               </div>
             ))}
           </div>

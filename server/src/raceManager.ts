@@ -39,7 +39,6 @@ type RaceRoom = {
   packLabel: string
   startsAt: number | null
   waitingEndsAt: number | null
-  finishOrder: string[]
   rematchVotes: Set<string>
   waitingTimer: NodeJS.Timeout | null
   startTimer: NodeJS.Timeout | null
@@ -73,6 +72,11 @@ function calculateWpm(correctCharacters: number, elapsedMs: number) {
 function calculateAccuracy(correctKeystrokes: number, totalKeystrokes: number) {
   if (totalKeystrokes === 0) return 100
   return Math.round((correctKeystrokes / totalKeystrokes) * 100)
+}
+
+function calculateCompetitiveScore(wpm: number, accuracy: number) {
+  const accuracyRatio = accuracy / 100
+  return Math.round(wpm * accuracyRatio * accuracyRatio * 10) / 10
 }
 
 function countCorrectPrefix(text: string, sentence: string) {
@@ -134,17 +138,21 @@ export function registerRaceHandlers(io: Server) {
       ? 0
       : Math.max(0, (player.finishedAt ?? now) - room.startsAt)
 
+    const wpm = calculateWpm(
+      Math.max(0, player.correctCharacters - player.skippedCharacters.size),
+      elapsedMs,
+    )
+    const accuracy = calculateAccuracy(player.correctKeystrokes, player.totalKeystrokes)
+
     return {
       id: player.id,
       name: player.name,
       progress: room.sentence.length === 0
         ? 0
         : Math.round((player.correctCharacters / room.sentence.length) * 10_000) / 100,
-      wpm: calculateWpm(
-        Math.max(0, player.correctCharacters - player.skippedCharacters.size),
-        elapsedMs,
-      ),
-      accuracy: calculateAccuracy(player.correctKeystrokes, player.totalKeystrokes),
+      wpm,
+      accuracy,
+      score: calculateCompetitiveScore(wpm, accuracy),
       finished: player.finishedAt !== null,
       placement: player.placement,
       connected: player.connected,
@@ -246,7 +254,6 @@ export function registerRaceHandlers(io: Server) {
       packLabel: '',
       startsAt: null,
       waitingEndsAt: null,
-      finishOrder: [],
       rematchVotes: new Set(),
       waitingTimer: null,
       startTimer: null,
@@ -340,8 +347,6 @@ export function registerRaceHandlers(io: Server) {
 
     if (nextText === room.sentence) {
       player.finishedAt = Date.now()
-      room.finishOrder.push(player.id)
-      player.placement = room.finishOrder.length
     }
 
     emitRaceState(room)
@@ -363,8 +368,6 @@ export function registerRaceHandlers(io: Server) {
 
     if (nextWordStart === room.sentence.length) {
       player.finishedAt = Date.now()
-      room.finishOrder.push(player.id)
-      player.placement = room.finishOrder.length
     }
 
     emitRaceState(room)
@@ -392,14 +395,23 @@ export function registerRaceHandlers(io: Server) {
     room.stateTimer = null
     stopBots(room)
 
-    const orderedPlayers = [
-      ...room.finishOrder
-        .map((playerId) => room.players.get(playerId))
-        .filter((player): player is RacePlayer => Boolean(player)),
-      ...[...room.players.values()]
-        .filter((player) => player.finishedAt === null)
-        .sort((left, right) => (right.disconnectedAt ?? 0) - (left.disconnectedAt ?? 0)),
-    ]
+    const rankedAt = Date.now()
+    const orderedPlayers = [...room.players.values()].sort((left, right) => {
+      const leftFinished = left.finishedAt !== null
+      const rightFinished = right.finishedAt !== null
+      if (leftFinished !== rightFinished) return leftFinished ? -1 : 1
+
+      const leftState = getPlayerState(room, left, rankedAt)
+      const rightState = getPlayerState(room, right, rankedAt)
+      if (rightState.score !== leftState.score) return rightState.score - leftState.score
+      if (rightState.accuracy !== leftState.accuracy) {
+        return rightState.accuracy - leftState.accuracy
+      }
+      if (rightState.wpm !== leftState.wpm) return rightState.wpm - leftState.wpm
+
+      return (left.finishedAt ?? Number.POSITIVE_INFINITY)
+        - (right.finishedAt ?? Number.POSITIVE_INFINITY)
+    })
 
     orderedPlayers.forEach((player, index) => {
       player.placement = index + 1
@@ -478,7 +490,6 @@ export function registerRaceHandlers(io: Server) {
     room.packLabel = ''
     room.startsAt = null
     room.waitingEndsAt = null
-    room.finishOrder = []
     room.rematchVotes.clear()
     assignHost(room)
 
