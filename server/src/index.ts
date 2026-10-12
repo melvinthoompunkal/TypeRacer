@@ -15,7 +15,7 @@ import { registerRaceHandlers } from './raceManager.js'
 import {
   getPackSummaries,
   getPracticeText,
-  isPackId,
+  isPracticePackId,
 } from './sentences.js'
 
 const app = express()
@@ -68,7 +68,7 @@ app.get('/api/packs', (_request, response) => {
 app.get('/api/practice/:packId', (request, response) => {
   const { packId } = request.params
 
-  if (!isPackId(packId)) {
+  if (!isPracticePackId(packId)) {
     response.status(404).json({ error: 'Unknown sentence pack.' })
     return
   }

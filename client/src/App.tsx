@@ -649,7 +649,9 @@ function App() {
   }
 
   if (screen === 'practice-setup' && selectedPack) {
-    const selectedPackLabel = packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
+    const selectedPackLabel = selectedPack === 'random-words'
+      ? 'Random Words'
+      : packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
     const options = PRACTICE_OPTIONS[practiceMode.type]
 
     return (
@@ -672,7 +674,11 @@ function App() {
           <div className="setup-heading">
             <span className="eyebrow">Configure practice</span>
             <h1>{selectedPackLabel}</h1>
-            <p>Choose how you want to train. Your test begins with the first keystroke.</p>
+            <p>
+              {selectedPack === 'random-words'
+                ? 'Pure lowercase words with no punctuation. Your test begins with the first keystroke.'
+                : 'Choose how you want to train. Your test begins with the first keystroke.'}
+            </p>
           </div>
 
           {error && <div className="error-banner" role="alert">{error}</div>}
@@ -740,7 +746,9 @@ function App() {
   if (screen === 'practice' && round) {
     const selectedPackLabel = isPlacementTest
       ? 'Skill placement'
-      : packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
+      : selectedPack === 'random-words'
+        ? 'Random Words'
+        : packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
 
     return (
       <main className="app-shell practice-shell">
@@ -982,12 +990,12 @@ function App() {
           <div className="mode-icon">⌨</div>
           <span className="eyebrow">Available now</span>
           <h2>Practice</h2>
-          <p>Pick a pack, find your rhythm, and chase a new session best.</p>
+          <p>Build raw speed with a clean stream of random words. No punctuation, no distractions.</p>
           <button
             className="card-action"
-            onClick={() => document.querySelector('#practice-packs')?.scrollIntoView({ behavior: 'smooth' })}
+            onClick={() => openPracticeSetup('random-words')}
           >
-            Choose a pack <b>→</b>
+            Start practice <b>&rarr;</b>
           </button>
         </article>
         <article className="mode-card race-mode">

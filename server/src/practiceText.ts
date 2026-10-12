@@ -1,8 +1,12 @@
-type PracticePackId =
+import sentenceData from './sentences.json' with { type: 'json' }
+
+type ContentPackId =
   | 'movie-quotes'
   | 'famous-lines'
   | 'rap-lyrics'
   | 'everyday-funny'
+
+export type PracticePackId = ContentPackId | 'random-words'
 
 type Topic = {
   subject: string
@@ -13,6 +17,17 @@ type Topic = {
 
 const pick = <T>(values: readonly T[]): T =>
   values[Math.floor(Math.random() * values.length)]
+
+function shuffle<T>(values: readonly T[]): T[] {
+  const shuffled = [...values]
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    ;[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]]
+  }
+  return shuffled
+}
+
+const authoredSentencePacks = sentenceData as Record<ContentPackId, string[]>
 
 const movieNames = ['Mara', 'Rowan', 'Eli', 'Nora', 'Sasha', 'Theo', 'June', 'Miles']
 const moviePlaces = [
@@ -195,14 +210,14 @@ function funnyPassage(): string[] {
   ]
 }
 
-const passageGenerators: Record<PracticePackId, () => string[]> = {
+const passageGenerators: Record<ContentPackId, () => string[]> = {
   'movie-quotes': moviePassage,
   'famous-lines': famousPassage,
   'rap-lyrics': rapPassage,
   'everyday-funny': funnyPassage,
 }
 
-const bridges: Record<PracticePackId, readonly string[]> = {
+const bridges: Record<ContentPackId, readonly string[]> = {
   'movie-quotes': [
     'Elsewhere, another scene was already beginning.',
     'Meanwhile, a different story was unfolding across town.',
@@ -224,7 +239,7 @@ const bridges: Record<PracticePackId, readonly string[]> = {
 type ClosingLength = 3 | 4 | 5 | 6 | 7
 
 const closings: Record<
-  PracticePackId,
+  ContentPackId,
   Record<ClosingLength, readonly string[]>
 > = {
   'movie-quotes': {
@@ -278,14 +293,74 @@ const closings: Record<
   },
 }
 
-const recentPracticeText = new Map<PracticePackId, string>()
-const recentCompetitiveText = new Map<PracticePackId, string>()
+const RECENT_PRACTICE_LIMIT = 24
+const RECENT_COMPETITIVE_LIMIT = 36
+const recentPracticeText = new Map<string, string[]>()
+const recentCompetitiveText = new Map<ContentPackId, string[]>()
+
+const randomWordPool = `
+  able about above across act add after again against age air all almost along already also
+  always among amount answer appear apple area around arrive art ask away back balance ball
+  base beach become before begin behind believe below best better between beyond bird black
+  blue board boat body book both box bring build busy call calm camera can car carry case
+  change check child city class clear close cloud coast color come common complete consider
+  continue cool copy corner correct could country course cover create cross crowd cut dance
+  dark day decide deep develop different direct discover distance door down draw dream drive
+  during each early earth east easy edge effect enough enter even ever every example eye face
+  fact fall family far fast feel few field figure fill final find fine finish fire first floor
+  flow follow food foot force form forward free fresh friend front full game garden general
+  get give glass go good great green ground group grow guess hand happen hard have head hear
+  heart help here high hold home hope horse hot hour house idea important improve include inside
+  interest into island job join jump just keep key kind know land large last late learn leave
+  left less letter life light like line list little live local long look love low machine make
+  many map mark matter mean measure meet might mile mind minute miss moment money month morning
+  most move much music must name near need never new next night north note nothing notice number
+  ocean off often old once open order other outside over page paper part pass past path people
+  perhaps pick picture place plan play point possible power practice prepare present problem
+  produce public pull push question quick quiet reach read ready real reason remember repeat
+  rest right river road rock room round rule run same school sea second seem sentence set shape
+  share short should show side simple since small sound south space speak speed spell stand start
+  state stay step still stop story street strong study such sun sure system table take talk teach
+  team tell test than thing think three through time today together top toward town train tree try
+  turn under understand until up use very wait walk want warm water way week well west while white
+  whole why wide will wind window with word work world would write year young
+`.trim().split(/\s+/)
 
 function countWords(text: string): number {
   return text.split(/\s+/).length
 }
 
-function makeClosing(packId: PracticePackId, wordCount: number): string[] {
+function rememberRecent<K>(
+  history: Map<K, string[]>,
+  key: K,
+  text: string,
+  limit: number,
+) {
+  const recent = history.get(key) ?? []
+  history.set(key, [...recent.filter((item) => item !== text), text].slice(-limit))
+}
+
+function buildRandomWords(wordCount: number): string {
+  const words: string[] = []
+
+  while (words.length < wordCount) {
+    const nextBatch = shuffle(randomWordPool)
+    if (words.length > 0 && nextBatch[0] === words.at(-1)) {
+      ;[nextBatch[0], nextBatch[1]] = [nextBatch[1], nextBatch[0]]
+    }
+    words.push(...nextBatch.slice(0, wordCount - words.length))
+  }
+
+  return words.join(' ')
+}
+
+function buildPracticePassage(packId: ContentPackId): string[] {
+  const authored = shuffle(authoredSentencePacks[packId]).slice(0, 6)
+  const generated = passageGenerators[packId]()
+  return shuffle([...authored, ...generated]).slice(0, 6)
+}
+
+function makeClosing(packId: ContentPackId, wordCount: number): string[] {
   const sentences: string[] = []
   let remaining = wordCount
   let previousSentence = ''
@@ -307,13 +382,13 @@ function makeClosing(packId: PracticePackId, wordCount: number): string[] {
   return sentences
 }
 
-function buildText(packId: PracticePackId, wordCount: number): string {
+function buildText(packId: ContentPackId, wordCount: number): string {
   const candidates: string[] = []
   let generatedWords = 0
 
   while (generatedWords < wordCount) {
     if (candidates.length > 0) candidates.push(pick(bridges[packId]))
-    candidates.push(...passageGenerators[packId]())
+    candidates.push(...buildPracticePassage(packId))
     generatedWords = candidates.reduce((total, sentence) => total + countWords(sentence), 0)
   }
 
@@ -338,37 +413,45 @@ function buildText(packId: PracticePackId, wordCount: number): string {
 }
 
 export function generatePracticeText(packId: PracticePackId, wordCount: number): string {
-  let text = buildText(packId, wordCount)
+  const historyKey = `${packId}:${wordCount}`
+  const recent = recentPracticeText.get(historyKey) ?? []
+  const build = packId === 'random-words'
+    ? () => buildRandomWords(wordCount)
+    : () => buildText(packId, wordCount)
+  let text = build()
 
-  // The combinations are numerous, and rerolling makes an immediate duplicate
-  // vanishingly unlikely even for the shortest exercise.
-  for (let attempt = 0; attempt < 8 && text === recentPracticeText.get(packId); attempt += 1) {
-    text = buildText(packId, wordCount)
+  for (let attempt = 0; attempt < 32 && recent.includes(text); attempt += 1) {
+    text = build()
   }
 
-  recentPracticeText.set(packId, text)
+  rememberRecent(recentPracticeText, historyKey, text, RECENT_PRACTICE_LIMIT)
   return text
 }
 
-function buildCompetitiveText(packId: PracticePackId) {
-  const passage = passageGenerators[packId]()
+function buildCompetitiveText(packId: ContentPackId) {
   const sentenceCount = Math.random() < 0.5 ? 2 : 3
+  const authored = authoredSentencePacks[packId].filter((sentence) => (
+    (sentence.match(/[.!?](?:\s|$)/g)?.length ?? 0) === 1
+  ))
+
+  if (authored.length >= sentenceCount && Math.random() < 0.85) {
+    return shuffle(authored).slice(0, sentenceCount).join(' ')
+  }
+
+  const passage = passageGenerators[packId]()
   const maximumStart = passage.length - sentenceCount
   const start = Math.floor(Math.random() * (maximumStart + 1))
   return passage.slice(start, start + sentenceCount).join(' ')
 }
 
-export function generateCompetitiveText(packId: PracticePackId): string {
+export function generateCompetitiveText(packId: ContentPackId): string {
+  const recent = recentCompetitiveText.get(packId) ?? []
   let text = buildCompetitiveText(packId)
 
-  for (
-    let attempt = 0;
-    attempt < 8 && text === recentCompetitiveText.get(packId);
-    attempt += 1
-  ) {
+  for (let attempt = 0; attempt < 48 && recent.includes(text); attempt += 1) {
     text = buildCompetitiveText(packId)
   }
 
-  recentCompetitiveText.set(packId, text)
+  rememberRecent(recentCompetitiveText, packId, text, RECENT_COMPETITIVE_LIMIT)
   return text
 }

@@ -9,6 +9,7 @@ export const PACK_LABELS = {
 } as const
 
 export type PackId = keyof typeof PACK_LABELS
+export type PracticePackId = PackId | 'random-words'
 
 const MAX_SENTENCE_LENGTH = 200
 
@@ -23,13 +24,17 @@ export function isPackId(value: string): value is PackId {
   return value in PACK_LABELS
 }
 
+export function isPracticePackId(value: string): value is PracticePackId {
+  return value === 'random-words' || isPackId(value)
+}
+
 export function getRandomSentence(packId: PackId, excludedSentence?: string): string {
   const sentences = sentencePacks[packId]
   const candidates = sentences.filter((sentence) => sentence !== excludedSentence)
   return candidates[Math.floor(Math.random() * candidates.length)]
 }
 
-export function getPracticeText(packId: PackId, wordCount: number): string {
+export function getPracticeText(packId: PracticePackId, wordCount: number): string {
   return generatePracticeText(packId, wordCount)
 }
 
