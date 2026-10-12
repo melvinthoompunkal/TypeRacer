@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 
 type SoundKind = 'countdown' | 'go' | 'error' | 'finish' | 'win'
+export type ColorTheme = 'light' | 'dark'
 
 let audioContext: AudioContext | null = null
 
@@ -85,6 +86,30 @@ export function SoundButton({
     >
       <span aria-hidden="true">{enabled ? '♫' : '♩'}</span>
       <span>{enabled ? 'Sound on' : 'Sound off'}</span>
+    </button>
+  )
+}
+
+export function ThemeButton({
+  theme,
+  onToggle,
+}: {
+  theme: ColorTheme
+  onToggle: () => void
+}) {
+  const isDark = theme === 'dark'
+
+  return (
+    <button
+      className='theme-button'
+      type='button'
+      onClick={onToggle}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-pressed={isDark}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      <span aria-hidden='true'>{isDark ? '☀' : '☾'}</span>
+      <span>{isDark ? 'Light mode' : 'Dark mode'}</span>
     </button>
   )
 }

@@ -12,6 +12,8 @@ import {
   primeGameAudio,
   RaceCar,
   SoundButton,
+  ThemeButton,
+  type ColorTheme,
 } from './gamePolish'
 
 type Screen = 'home' | 'practice-setup' | 'practice' | 'multiplayer'
@@ -89,10 +91,20 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(
     () => window.localStorage.getItem('type-racer-sound') === 'on',
   )
+  const [theme, setTheme] = useState<ColorTheme>(() => {
+    const savedTheme = window.localStorage.getItem('type-racer-theme')
+    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
   const inputRef = useRef<HTMLInputElement>(null)
   const sentenceViewportRef = useRef<HTMLDivElement>(null)
   const activeCharacterRef = useRef<HTMLSpanElement>(null)
   const previousErrorRef = useRef(false)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    window.localStorage.setItem('type-racer-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     fetch('/api/packs')
@@ -230,6 +242,10 @@ function App() {
     if (nextValue) primeGameAudio()
   }
 
+  const toggleTheme = () => {
+    setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')
+  }
+
   const handleInput = (rawValue: string) => {
     if (!round || finishedAt !== null) return
 
@@ -309,6 +325,8 @@ function App() {
         entry={multiplayerEntry}
         soundEnabled={soundEnabled}
         onToggleSound={toggleSound}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onExit={returnHome}
       />
     )
@@ -327,6 +345,7 @@ function App() {
           </button>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
+            <ThemeButton theme={theme} onToggle={toggleTheme} />
             <button className="text-button" onClick={returnHome}>Back home</button>
           </div>
         </nav>
@@ -412,6 +431,7 @@ function App() {
           </button>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
+            <ThemeButton theme={theme} onToggle={toggleTheme} />
             <button className="text-button" onClick={returnHome}>Exit practice</button>
           </div>
         </nav>
@@ -535,7 +555,7 @@ function App() {
         </div>
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
-          <span className="status-pill"><i /> Server online</span>
+          <ThemeButton theme={theme} onToggle={toggleTheme} />
         </div>
       </nav>
 

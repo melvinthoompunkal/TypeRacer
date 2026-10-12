@@ -5,6 +5,8 @@ import {
   RaceCar,
   racerColor,
   SoundButton,
+  ThemeButton,
+  type ColorTheme,
 } from './gamePolish'
 
 type Phase = 'joining' | 'lobby' | 'countdown' | 'racing' | 'results'
@@ -94,6 +96,8 @@ type MultiplayerRaceProps = {
   entry: MultiplayerEntry
   soundEnabled: boolean
   onToggleSound: () => void
+  theme: ColorTheme
+  onToggleTheme: () => void
   onExit: () => void
 }
 
@@ -111,6 +115,8 @@ export default function MultiplayerRace({
   entry,
   soundEnabled,
   onToggleSound,
+  theme,
+  onToggleTheme,
   onExit,
 }: MultiplayerRaceProps) {
   const socket = useMemo<Socket<ServerToClientEvents, ClientToServerEvents>>(
@@ -320,6 +326,7 @@ export default function MultiplayerRace({
           </div>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+            <ThemeButton theme={theme} onToggle={onToggleTheme} />
             <button className="text-button" onClick={exitRace}>Leave lobby</button>
           </div>
         </nav>
@@ -396,6 +403,7 @@ export default function MultiplayerRace({
           </div>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+            <ThemeButton theme={theme} onToggle={onToggleTheme} />
             <button className="text-button" onClick={exitRace}>Back home</button>
           </div>
         </nav>
@@ -452,6 +460,7 @@ export default function MultiplayerRace({
         </div>
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
+          <ThemeButton theme={theme} onToggle={onToggleTheme} />
           <span className="race-pack">{race.packLabel}</span>
         </div>
       </nav>
