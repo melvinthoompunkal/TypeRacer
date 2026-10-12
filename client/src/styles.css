@@ -367,6 +367,8 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 .character { color: #9b9a97; border-radius: 3px; transition: color 90ms ease, background 90ms ease; }
 .character.correct { color: var(--green); }
 .character.wrong { color: #fff9f4; background: var(--red); animation: shake 150ms linear; }
+.character.typed-wrong { display: inline-block; min-width: 0.62em; text-align: center; }
+.character.skipped { color: var(--muted); opacity: 0.55; text-decoration: line-through; }
 .character.current { color: #6e7075; border-bottom: 2px solid var(--lime); }
 .race-card:focus-within { border-color: rgba(180, 110, 27, 0.32); box-shadow: 0 28px 80px rgba(44, 38, 28, 0.12), 0 0 0 1px rgba(180, 110, 27, 0.08); }
 
@@ -613,6 +615,10 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 
 :root[data-theme='dark'] .character.current {
   color: #b7bac0;
+}
+
+:root[data-theme='dark'] .character.skipped {
+  color: var(--muted);
 }
 
 :root[data-theme='dark'] .lobby-slot {

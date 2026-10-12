@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
   playGameSound,
@@ -8,6 +8,11 @@ import {
   ThemeButton,
   type ColorTheme,
 } from './gamePolish'
+import {
+  acceptTypingInput,
+  countCorrectPrefix,
+  getNextWordStart,
+} from './typingMechanics'
 
 type Phase = 'joining' | 'lobby' | 'countdown' | 'racing' | 'results'
 type RoomMode = 'quick' | 'private'
@@ -87,6 +92,7 @@ type ClientToServerEvents = {
   ) => void
   'private:start': (acknowledge: (result: ActionResult) => void) => void
   'race:typed': (payload: { text: string }) => void
+  'race:skip-word': () => void
   'race:rematch': () => void
   'room:leave': () => void
 }
@@ -130,6 +136,7 @@ export default function MultiplayerRace({
   const [results, setResults] = useState<RaceResult[]>([])
   const [playerId, setPlayerId] = useState('')
   const [typed, setTyped] = useState('')
+  const [skippedIndices, setSkippedIndices] = useState<Set<number>>(() => new Set())
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState('')
   const [rematch, setRematch] = useState({ votes: 0, required: 1 })
@@ -174,6 +181,7 @@ export default function MultiplayerRace({
       setRacers([])
       setResults([])
       setTyped('')
+      setSkippedIndices(new Set())
       setRematchVoted(false)
       setCopiedCode(false)
       resultsSoundPlayedRef.current = false
@@ -189,6 +197,7 @@ export default function MultiplayerRace({
       })
       setRacers(payload.racers)
       setTyped('')
+      setSkippedIndices(new Set())
       setPhase('countdown')
     }
 
@@ -228,11 +237,10 @@ export default function MultiplayerRace({
   const self = racers.find((racer) => racer.id === playerId)
   const correctCount = useMemo(() => {
     if (!race) return 0
-    let count = 0
-    while (count < typed.length && typed[count] === race.sentence[count]) count += 1
-    return count
+    return countCorrectPrefix(typed, race.sentence)
   }, [race, typed])
   const hasError = Boolean(race && typed.length > correctCount)
+  const wrongCharacters = typed.slice(correctCount)
   const countdown = race ? Math.max(0, Math.ceil((race.startsAt - now) / 1_000)) : 0
   const lobbyWait = lobby?.startsAt
     ? Math.max(0, Math.ceil((lobby.startsAt - now) / 1_000))
@@ -263,23 +271,46 @@ export default function MultiplayerRace({
     if (!race || phase !== 'racing' || self?.finished) return
 
     if (rawValue.length < typed.length) {
+      const nextCorrectCount = countCorrectPrefix(rawValue, race.sentence)
+      setSkippedIndices((current) => new Set(
+        [...current].filter((index) => index < nextCorrectCount),
+      ))
       setTyped(rawValue)
       socket.emit('race:typed', { text: rawValue })
       return
     }
 
-    if (hasError || rawValue.length === typed.length) return
+    if (rawValue.length === typed.length) return
 
-    const added = rawValue.slice(typed.length)
-    let accepted = typed
-    for (const character of added) {
-      if (accepted.length >= race.sentence.length) break
-      accepted += character
-      if (character !== race.sentence[accepted.length - 1]) break
-    }
+    const { text: accepted } = acceptTypingInput(typed, rawValue, race.sentence)
+    if (accepted === typed) return
 
     setTyped(accepted)
     socket.emit('race:typed', { text: accepted })
+  }
+
+  const skipCurrentWord = () => {
+    if (!race || phase !== 'racing' || self?.finished) return
+
+    const nextWordStart = getNextWordStart(race.sentence, correctCount)
+    if (nextWordStart <= correctCount) return
+
+    const nextSkippedIndices = new Set(skippedIndices)
+    for (let index = correctCount; index < nextWordStart; index += 1) {
+      nextSkippedIndices.add(index)
+    }
+
+    setSkippedIndices(nextSkippedIndices)
+    setTyped(race.sentence.slice(0, nextWordStart))
+    socket.emit('race:skip-word')
+  }
+
+  const handleTypingKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!race || event.key !== ' ' || phase !== 'racing' || self?.finished) return
+    if (!hasError && race.sentence[correctCount] === ' ') return
+
+    event.preventDefault()
+    skipCurrentWord()
   }
 
   const startPrivateRace = () => {
@@ -517,17 +548,30 @@ export default function MultiplayerRace({
           )}
 
           <div className="sentence" aria-label={race.sentence}>
-            {race.sentence.split('').map((character, index) => {
+            {race.sentence.split('').flatMap((character, index) => {
               let state = 'pending'
-              if (index < correctCount) state = 'correct'
-              else if (index === correctCount && hasError) state = 'wrong'
+              if (skippedIndices.has(index)) state = 'skipped'
+              else if (index < correctCount) state = 'correct'
               else if (index === correctCount && !self?.finished) state = 'current'
 
-              return (
-                <span className={`character ${state}`} key={`${character}-${index}`}>
+              const targetCharacter = (
+                <span className={'character ' + state} key={'target-' + index}>
                   {character === ' ' ? '\u00a0' : character}
                 </span>
               )
+
+              if (index !== correctCount || !hasError) return [targetCharacter]
+
+              const errors = wrongCharacters.split('').map((wrongCharacter, wrongIndex) => (
+                <span
+                  className='character wrong typed-wrong'
+                  key={'wrong-' + index + '-' + wrongIndex}
+                >
+                  {wrongCharacter}
+                </span>
+              ))
+
+              return [...errors, targetCharacter]
             })}
           </div>
 
@@ -536,6 +580,7 @@ export default function MultiplayerRace({
             className="typing-input"
             value={typed}
             onChange={(event) => handleInput(event.target.value)}
+            onKeyDown={handleTypingKeyDown}
             onPaste={(event) => event.preventDefault()}
             autoCapitalize="off"
             autoComplete="off"
@@ -548,7 +593,11 @@ export default function MultiplayerRace({
 
           {phase === 'racing' && !self?.finished && (
             <button className="focus-prompt" onClick={() => inputRef.current?.focus()}>
-              {hasError ? 'Fix the red character to continue' : 'Tap here to focus your keyboard'}
+              {hasError
+                ? 'Backspace ' + wrongCharacters.length
+                  + ' wrong letter' + (wrongCharacters.length === 1 ? '' : 's')
+                  + ', or press Space to skip'
+                : 'Tap here to focus your keyboard'}
             </button>
           )}
           {self?.finished && <p className="finished-waiting">Finished — waiting for the field…</p>}

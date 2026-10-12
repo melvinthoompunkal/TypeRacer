@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
 } from 'react'
 import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
 import {
@@ -15,6 +16,11 @@ import {
   ThemeButton,
   type ColorTheme,
 } from './gamePolish'
+import {
+  acceptTypingInput,
+  countCorrectPrefix,
+  getNextWordStart,
+} from './typingMechanics'
 
 type Screen = 'home' | 'practice-setup' | 'practice' | 'multiplayer'
 type PracticeModeType = 'words' | 'time'
@@ -79,6 +85,7 @@ function App() {
   })
   const [round, setRound] = useState<PracticeRound | null>(null)
   const [typed, setTyped] = useState('')
+  const [skippedIndices, setSkippedIndices] = useState<Set<number>>(() => new Set())
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [finishedAt, setFinishedAt] = useState<number | null>(null)
   const [totalKeystrokes, setTotalKeystrokes] = useState(0)
@@ -138,6 +145,7 @@ function App() {
       setSelectedPack(packId)
       setPracticeMode(mode)
       setTyped('')
+      setSkippedIndices(new Set())
       setStartedAt(null)
       setFinishedAt(null)
       setTotalKeystrokes(0)
@@ -162,18 +170,21 @@ function App() {
 
   const correctCount = useMemo(() => {
     if (!round) return 0
-    let count = 0
-    while (count < typed.length && typed[count] === round.sentence[count]) count += 1
-    return count
+    return countCorrectPrefix(typed, round.sentence)
   }, [round, typed])
 
   const hasError = Boolean(round && typed.length > correctCount)
+  const wrongCharacters = typed.slice(correctCount)
+  const skippedCount = useMemo(
+    () => [...skippedIndices].filter((index) => index < correctCount).length,
+    [correctCount, skippedIndices],
+  )
   const elapsedMs = startedAt === null ? 0 : (finishedAt ?? now) - startedAt
   const timeLimitMs = practiceMode.type === 'time' ? practiceMode.value * 1_000 : 0
   const remainingMs = practiceMode.type === 'time'
     ? Math.max(0, timeLimitMs - elapsedMs)
     : 0
-  const wpm = calculateWpm(correctCount, elapsedMs)
+  const wpm = calculateWpm(Math.max(0, correctCount - skippedCount), elapsedMs)
   const accuracy = calculateAccuracy(correctKeystrokes, totalKeystrokes)
   const progress = round
     ? practiceMode.type === 'time'
@@ -196,7 +207,7 @@ function App() {
 
   useLayoutEffect(() => {
     updateActiveLine()
-  }, [correctCount, round, updateActiveLine])
+  }, [correctCount, round, typed, updateActiveLine])
 
   useEffect(() => {
     const viewport = sentenceViewportRef.current
@@ -217,7 +228,10 @@ function App() {
 
     const finish = startedAt + timeLimitMs
     setFinishedAt(finish)
-    setSessionBest((best) => Math.max(best, calculateWpm(correctCount, timeLimitMs)))
+    setSessionBest((best) => Math.max(
+      best,
+      calculateWpm(Math.max(0, correctCount - skippedCount), timeLimitMs),
+    ))
     playGameSound(soundEnabled, 'finish')
     window.setTimeout(() => inputRef.current?.blur(), 0)
   }, [
@@ -225,6 +239,7 @@ function App() {
     elapsedMs,
     finishedAt,
     practiceMode.type,
+    skippedCount,
     soundEnabled,
     startedAt,
     timeLimitMs,
@@ -250,27 +265,55 @@ function App() {
     if (!round || finishedAt !== null) return
 
     if (rawValue.length < typed.length) {
+      const nextCorrectCount = countCorrectPrefix(rawValue, round.sentence)
+      setSkippedIndices((current) => new Set(
+        [...current].filter((index) => index < nextCorrectCount),
+      ))
       setTyped(rawValue)
       return
     }
 
-    if (hasError || rawValue.length === typed.length) return
+    if (rawValue.length === typed.length) return
 
-    const added = rawValue.slice(typed.length)
-    let accepted = typed
-    let newTotal = 0
-    let newCorrect = 0
+    const {
+      text: accepted,
+      addedKeystrokes,
+      addedCorrect,
+    } = acceptTypingInput(typed, rawValue, round.sentence)
+    if (accepted === typed) return
 
-    for (const character of added) {
-      if (accepted.length >= round.sentence.length) break
-      newTotal += 1
-      accepted += character
+    const start = startedAt ?? Date.now()
+    if (startedAt === null) {
+      setStartedAt(start)
+      setNow(start)
+    }
 
-      if (character === round.sentence[accepted.length - 1]) {
-        newCorrect += 1
-      } else {
-        break
-      }
+    setTotalKeystrokes((value) => value + addedKeystrokes)
+    setCorrectKeystrokes((value) => value + addedCorrect)
+    setTyped(accepted)
+
+    if (accepted === round.sentence) {
+      const finish = Date.now()
+      const finalWpm = calculateWpm(
+        Math.max(0, round.sentence.length - skippedIndices.size),
+        finish - start,
+      )
+      setFinishedAt(finish)
+      setSessionBest((best) => Math.max(best, finalWpm))
+      playGameSound(soundEnabled, 'finish')
+      window.setTimeout(() => inputRef.current?.blur(), 0)
+    }
+  }
+
+  const skipCurrentWord = () => {
+    if (!round || finishedAt !== null) return
+
+    const nextWordStart = getNextWordStart(round.sentence, correctCount)
+    if (nextWordStart <= correctCount) return
+
+    const nextSkippedIndices = new Set(skippedIndices)
+    for (let index = correctCount; index < nextWordStart; index += 1) {
+      nextSkippedIndices.add(index)
     }
 
     const start = startedAt ?? Date.now()
@@ -279,18 +322,29 @@ function App() {
       setNow(start)
     }
 
-    setTotalKeystrokes((value) => value + newTotal)
-    setCorrectKeystrokes((value) => value + newCorrect)
-    setTyped(accepted)
+    setSkippedIndices(nextSkippedIndices)
+    setTotalKeystrokes((value) => value + nextWordStart - correctCount)
+    setTyped(round.sentence.slice(0, nextWordStart))
 
-    if (accepted === round.sentence) {
+    if (nextWordStart === round.sentence.length) {
       const finish = Date.now()
-      const finalWpm = calculateWpm(round.sentence.length, finish - start)
+      const finalWpm = calculateWpm(
+        Math.max(0, round.sentence.length - nextSkippedIndices.size),
+        finish - start,
+      )
       setFinishedAt(finish)
       setSessionBest((best) => Math.max(best, finalWpm))
       playGameSound(soundEnabled, 'finish')
       window.setTimeout(() => inputRef.current?.blur(), 0)
     }
+  }
+
+  const handleTypingKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!round || event.key !== ' ' || finishedAt !== null) return
+    if (!hasError && round.sentence[correctCount] === ' ') return
+
+    event.preventDefault()
+    skipCurrentWord()
   }
 
   const returnHome = () => {
@@ -480,21 +534,35 @@ function App() {
               className="sentence practice-sentence"
               style={{ transform: `translateY(-${activeLineTop}px)` }}
             >
-              {round.sentence.split('').map((character, index) => {
+              {round.sentence.split('').flatMap((character, index) => {
                 let state = 'pending'
-                if (index < correctCount) state = 'correct'
-                else if (index === correctCount && hasError) state = 'wrong'
+                if (skippedIndices.has(index)) state = 'skipped'
+                else if (index < correctCount) state = 'correct'
                 else if (index === correctCount && !finishedAt) state = 'current'
 
-                return (
+                const targetCharacter = (
                   <span
-                    className={`character ${state}`}
-                    key={index}
-                    ref={index === correctCount ? activeCharacterRef : undefined}
+                    className={'character ' + state}
+                    key={'target-' + index}
+                    ref={index === correctCount && !hasError ? activeCharacterRef : undefined}
                   >
                     {character}
                   </span>
                 )
+
+                if (index !== correctCount || !hasError) return [targetCharacter]
+
+                const errors = wrongCharacters.split('').map((wrongCharacter, wrongIndex) => (
+                  <span
+                    className='character wrong typed-wrong'
+                    key={'wrong-' + index + '-' + wrongIndex}
+                    ref={wrongIndex === wrongCharacters.length - 1 ? activeCharacterRef : undefined}
+                  >
+                    {wrongCharacter}
+                  </span>
+                ))
+
+                return [...errors, targetCharacter]
               })}
             </div>
           </div>
@@ -504,6 +572,7 @@ function App() {
             className="typing-input"
             value={typed}
             onChange={(event) => handleInput(event.target.value)}
+            onKeyDown={handleTypingKeyDown}
             onPaste={(event) => event.preventDefault()}
             autoCapitalize="off"
             autoComplete="off"
@@ -515,7 +584,13 @@ function App() {
 
           {!finishedAt && (
             <button className="focus-prompt" onClick={() => inputRef.current?.focus()}>
-              {startedAt === null ? 'Tap here and start typing' : hasError ? 'Fix the red character to continue' : 'Keep going'}
+              {startedAt === null
+                ? 'Tap here and start typing'
+                : hasError
+                  ? 'Backspace ' + wrongCharacters.length
+                    + ' wrong letter' + (wrongCharacters.length === 1 ? '' : 's')
+                    + ', or press Space to skip'
+                  : 'Keep going'}
             </button>
           )}
         </section>

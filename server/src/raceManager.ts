@@ -6,6 +6,7 @@ const MAX_PLAYERS = 4
 const COUNTDOWN_MS = 3_000
 const ROOM_CLEANUP_MS = 120_000
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+const MAX_WRONG_CHARACTERS = 5
 
 type RoomStatus = 'waiting' | 'countdown' | 'racing' | 'finished'
 type RoomMode = 'quick' | 'private'
@@ -19,6 +20,7 @@ type RacePlayer = {
   correctCharacters: number
   correctKeystrokes: number
   totalKeystrokes: number
+  skippedCharacters: Set<number>
   finishedAt: number | null
   placement: number | null
   connected: boolean
@@ -87,6 +89,13 @@ function countSharedPrefix(left: string, right: string) {
   return count
 }
 
+function getNextWordStart(target: string, currentIndex: number) {
+  let nextIndex = currentIndex
+  while (nextIndex < target.length && target[nextIndex] !== ' ') nextIndex += 1
+  while (nextIndex < target.length && target[nextIndex] === ' ') nextIndex += 1
+  return nextIndex
+}
+
 function sanitizeName(value: unknown) {
   if (typeof value !== 'string') return ''
   return value.trim().replace(/\s+/g, ' ').slice(0, 18)
@@ -102,6 +111,7 @@ function resetPlayer(player: RacePlayer) {
   player.correctCharacters = 0
   player.correctKeystrokes = 0
   player.totalKeystrokes = 0
+  player.skippedCharacters.clear()
   player.finishedAt = null
   player.placement = null
   player.disconnectedAt = null
@@ -130,7 +140,10 @@ export function registerRaceHandlers(io: Server) {
       progress: room.sentence.length === 0
         ? 0
         : Math.round((player.correctCharacters / room.sentence.length) * 10_000) / 100,
-      wpm: calculateWpm(player.correctCharacters, elapsedMs),
+      wpm: calculateWpm(
+        Math.max(0, player.correctCharacters - player.skippedCharacters.size),
+        elapsedMs,
+      ),
       accuracy: calculateAccuracy(player.correctKeystrokes, player.totalKeystrokes),
       finished: player.finishedAt !== null,
       placement: player.placement,
@@ -270,6 +283,7 @@ export function registerRaceHandlers(io: Server) {
       correctCharacters: 0,
       correctKeystrokes: 0,
       totalKeystrokes: 0,
+      skippedCharacters: new Set(),
       finishedAt: null,
       placement: null,
       connected: true,
@@ -297,6 +311,7 @@ export function registerRaceHandlers(io: Server) {
       correctCharacters: 0,
       correctKeystrokes: 0,
       totalKeystrokes: 0,
+      skippedCharacters: new Set(),
       finishedAt: null,
       placement: null,
       connected: true,
@@ -308,7 +323,9 @@ export function registerRaceHandlers(io: Server) {
   function applyTypedText(room: RaceRoom, player: RacePlayer, rawText: string) {
     if (room.status !== 'racing' || room.startsAt === null || player.finishedAt !== null) return
 
-    const nextText = rawText.slice(0, room.sentence.length + 1)
+    const unboundedText = rawText.slice(0, room.sentence.length + MAX_WRONG_CHARACTERS)
+    const correctPrefix = countCorrectPrefix(unboundedText, room.sentence)
+    const nextText = unboundedText.slice(0, correctPrefix + MAX_WRONG_CHARACTERS)
     const sharedPrefixLength = countSharedPrefix(player.typedText, nextText)
     for (let index = sharedPrefixLength; index < nextText.length; index += 1) {
       player.totalKeystrokes += 1
@@ -317,8 +334,34 @@ export function registerRaceHandlers(io: Server) {
 
     player.typedText = nextText
     player.correctCharacters = countCorrectPrefix(nextText, room.sentence)
+    player.skippedCharacters.forEach((index) => {
+      if (index >= player.correctCharacters) player.skippedCharacters.delete(index)
+    })
 
     if (nextText === room.sentence) {
+      player.finishedAt = Date.now()
+      room.finishOrder.push(player.id)
+      player.placement = room.finishOrder.length
+    }
+
+    emitRaceState(room)
+    if (player.finishedAt !== null) maybeFinishRoom(room)
+  }
+
+  function skipCurrentWord(room: RaceRoom, player: RacePlayer) {
+    if (room.status !== 'racing' || room.startsAt === null || player.finishedAt !== null) return
+
+    const nextWordStart = getNextWordStart(room.sentence, player.correctCharacters)
+    if (nextWordStart <= player.correctCharacters) return
+
+    for (let index = player.correctCharacters; index < nextWordStart; index += 1) {
+      player.skippedCharacters.add(index)
+    }
+    player.totalKeystrokes += nextWordStart - player.correctCharacters
+    player.typedText = room.sentence.slice(0, nextWordStart)
+    player.correctCharacters = nextWordStart
+
+    if (nextWordStart === room.sentence.length) {
       player.finishedAt = Date.now()
       room.finishOrder.push(player.id)
       player.placement = room.finishOrder.length
@@ -595,6 +638,25 @@ export function registerRaceHandlers(io: Server) {
       }
 
       applyTypedText(room, player, payload.text)
+    })
+
+    socket.on('race:skip-word', () => {
+      const roomId = socketRooms.get(socket.id)
+      const room = roomId ? rooms.get(roomId) : undefined
+      const player = room?.players.get(socket.id)
+
+      if (
+        !room
+        || !player
+        || player.isBot
+        || room.status !== 'racing'
+        || room.startsAt === null
+        || Date.now() < room.startsAt
+      ) {
+        return
+      }
+
+      skipCurrentWord(room, player)
     })
 
     socket.on('race:rematch', () => {
