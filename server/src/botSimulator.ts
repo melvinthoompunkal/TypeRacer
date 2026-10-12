@@ -24,11 +24,12 @@ const BOT_NAMES = [
 const DEFAULT_SKILL_RATING = 1_000
 const BEGINNER_CENTER_WPM = 42
 const MIN_CENTER_WPM = 35
-const MAX_CENTER_WPM = 113
+const MAX_CENTER_WPM = 114
 const MIN_BOT_WPM = 28
 const MAX_BOT_WPM = 120
-const RATING_TO_WPM_SLOPE = 0.065
-const BOT_SPREAD_WPM = 7
+const RATING_TO_WPM_SLOPE = 0.057
+const BOT_SPREAD_WPM = 6
+const HUMAN_DELAY_OVERHEAD_MS = 23
 
 type BotTypingOptions = {
   sentence: string
@@ -103,6 +104,11 @@ export function createBotProfile(usedNames: Set<string>, targetWpm: number) {
   }
 }
 
+export function getBotCharacterDelay(targetWpm: number) {
+  const safeWpm = clamp(targetWpm, MIN_BOT_WPM, MAX_BOT_WPM)
+  return Math.max(40, (12_000 / safeWpm) - HUMAN_DELAY_OVERHEAD_MS)
+}
+
 export function startBotTyping({
   sentence,
   targetWpm,
@@ -110,7 +116,7 @@ export function startBotTyping({
   onText,
 }: BotTypingOptions) {
   const timers = new Set<NodeJS.Timeout>()
-  const baseDelay = 12_000 / targetWpm
+  const baseDelay = getBotCharacterDelay(targetWpm)
   let typedText = ''
   let stopped = false
 
@@ -126,13 +132,13 @@ export function startBotTyping({
     if (stopped || !isActive() || typedText === sentence) return
 
     const expected = sentence[typedText.length]
-    if (Math.random() < 0.02) {
+    if (Math.random() < 0.015) {
       onText(typedText + wrongCharacter(expected))
       schedule(() => {
         if (stopped || !isActive()) return
         onText(typedText)
-        schedule(typeNextCharacter, randomBetween(90, 220))
-      }, randomBetween(180, 430))
+        schedule(typeNextCharacter, randomBetween(70, 150))
+      }, randomBetween(120, 260))
       return
     }
 
@@ -141,8 +147,8 @@ export function startBotTyping({
     if (typedText === sentence) return
 
     let delay = baseDelay * randomBetween(0.62, 1.38)
-    if (/[,.!?;:]/.test(expected)) delay += randomBetween(120, 330)
-    if (Math.random() < 0.055) delay += randomBetween(250, 780)
+    if (/[,.!?;:]/.test(expected)) delay += randomBetween(70, 170)
+    if (Math.random() < 0.035) delay += randomBetween(150, 420)
     schedule(typeNextCharacter, delay)
   }
 

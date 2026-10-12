@@ -5,6 +5,10 @@ import {
   startBotTyping,
 } from './botSimulator.js'
 import { applyRaceRewards } from './progression.js'
+import {
+  getQuickMatchRatingDistance,
+  isQuickMatchCompatible,
+} from './matchmaking.js'
 import { getRandomRaceSentence } from './sentences.js'
 
 const MAX_PLAYERS = 4
@@ -638,11 +642,23 @@ export function registerRaceHandlers(io: Server) {
         }
 
         leaveRoom(socket)
-        const room = [...rooms.values()].find(
-          (candidate) => candidate.mode === 'quick'
-            && candidate.status === 'waiting'
-            && candidate.players.size < MAX_PLAYERS,
-        ) ?? createRoom('quick')
+        const room = [...rooms.values()]
+          .filter((candidate) => {
+            if (
+              candidate.mode !== 'quick'
+              || candidate.status !== 'waiting'
+              || candidate.players.size >= MAX_PLAYERS
+            ) return false
+            const ratings = humanPlayers(candidate, true)
+              .map((player) => player.skillRating)
+            return isQuickMatchCompatible(authenticatedSkillRating, ratings)
+          })
+          .sort((left, right) => {
+            const leftRatings = humanPlayers(left, true).map((player) => player.skillRating)
+            const rightRatings = humanPlayers(right, true).map((player) => player.skillRating)
+            return getQuickMatchRatingDistance(authenticatedSkillRating, leftRatings)
+              - getQuickMatchRatingDistance(authenticatedSkillRating, rightRatings)
+          })[0] ?? createRoom('quick')
         const player = addHuman(
           socket,
           room,
