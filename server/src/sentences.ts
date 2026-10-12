@@ -28,6 +28,24 @@ export function getRandomSentence(packId: PackId, excludedSentence?: string): st
   return candidates[Math.floor(Math.random() * candidates.length)]
 }
 
+export function getPracticeText(packId: PackId, wordCount: number): string {
+  const sentences = sentencePacks[packId]
+  const words: string[] = []
+  let previousIndex = -1
+
+  while (words.length < wordCount) {
+    let sentenceIndex = Math.floor(Math.random() * sentences.length)
+    if (sentences.length > 1 && sentenceIndex === previousIndex) {
+      sentenceIndex = (sentenceIndex + 1) % sentences.length
+    }
+
+    words.push(...sentences[sentenceIndex].split(/\s+/))
+    previousIndex = sentenceIndex
+  }
+
+  return words.slice(0, wordCount).join(' ')
+}
+
 export function getPackSummaries() {
   return Object.entries(PACK_LABELS).map(([id, label]) => ({
     id,

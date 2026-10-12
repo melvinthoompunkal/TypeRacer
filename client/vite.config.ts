@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const developmentServer = process.env.DEV_SERVER_URL ?? 'http://localhost:3001'
+const developmentServer = process.env.DEV_SERVER_URL
+  ?? 'http://localhost:' + (process.env.PORT ?? '3001')
 
 export default defineConfig({
   plugins: [react()],
@@ -9,6 +10,10 @@ export default defineConfig({
     proxy: {
       '/api': developmentServer,
       '/health': developmentServer,
+      '/socket.io': {
+        target: developmentServer,
+        ws: true,
+      },
     },
   },
 })

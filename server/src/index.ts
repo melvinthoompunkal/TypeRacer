@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { Server } from 'socket.io'
 import { config } from './config.js'
 import { registerRaceHandlers } from './raceManager.js'
-import { getPackSummaries, getRandomSentence, isPackId } from './sentences.js'
+import {
+  getPackSummaries,
+  getPracticeText,
+  isPackId,
+} from './sentences.js'
 
 const app = express()
 const httpServer = createServer(app)
@@ -41,12 +45,15 @@ app.get('/api/practice/:packId', (request, response) => {
     return
   }
 
+  const requestedWords = Number(request.query.words ?? 25)
+  if (!Number.isInteger(requestedWords) || requestedWords < 10 || requestedWords > 500) {
+    response.status(400).json({ error: 'Word count must be between 10 and 500.' })
+    return
+  }
+
   response.set('Cache-Control', 'no-store').json({
     packId,
-    sentence: getRandomSentence(
-      packId,
-      typeof request.query.exclude === 'string' ? request.query.exclude : undefined,
-    ),
+    sentence: getPracticeText(packId, requestedWords),
   })
 })
 
@@ -59,6 +66,19 @@ if (existsSync(path.join(clientDirectory, 'index.html'))) {
     response.sendFile(path.join(clientDirectory, 'index.html'))
   })
 }
+
+httpServer.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(
+      'Cannot start TypeRacer: port ' + config.port + ' is already in use.\n'
+      + 'Stop the existing server, or set PORT to another value before running npm run dev.',
+    )
+  } else {
+    console.error('TypeRacer server failed to start:', error)
+  }
+
+  process.exit(1)
+})
 
 httpServer.listen(config.port, config.host, () => {
   console.log(`TypeRacer server listening on ${config.host}:${config.port}`)

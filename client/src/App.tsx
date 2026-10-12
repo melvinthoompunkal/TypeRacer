@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
 import {
   playGameSound,
@@ -7,7 +14,13 @@ import {
   SoundButton,
 } from './gamePolish'
 
-type Screen = 'home' | 'practice' | 'multiplayer'
+type Screen = 'home' | 'practice-setup' | 'practice' | 'multiplayer'
+type PracticeModeType = 'words' | 'time'
+
+type PracticeMode = {
+  type: PracticeModeType
+  value: number
+}
 
 type Pack = {
   id: string
@@ -19,6 +32,18 @@ type PracticeRound = {
   packId: string
   sentence: string
 }
+
+const PRACTICE_OPTIONS: Record<PracticeModeType, number[]> = {
+  words: [10, 25, 50, 100],
+  time: [15, 30, 60, 120],
+}
+
+const DEFAULT_PRACTICE_VALUES: Record<PracticeModeType, number> = {
+  words: 25,
+  time: 30,
+}
+
+const TIMED_TEST_WORDS = 500
 
 const PACK_DETAILS: Record<string, { icon: string; description: string }> = {
   'movie-quotes': { icon: '🎬', description: 'Iconic lines from the big screen' },
@@ -46,6 +71,10 @@ function App() {
   const [multiplayerEntry, setMultiplayerEntry] = useState<MultiplayerEntry>({ kind: 'quick' })
   const [packs, setPacks] = useState<Pack[]>([])
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>({
+    type: 'words',
+    value: DEFAULT_PRACTICE_VALUES.words,
+  })
   const [round, setRound] = useState<PracticeRound | null>(null)
   const [typed, setTyped] = useState('')
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -56,10 +85,13 @@ function App() {
   const [now, setNow] = useState(Date.now())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [activeLineTop, setActiveLineTop] = useState(0)
   const [soundEnabled, setSoundEnabled] = useState(
     () => window.localStorage.getItem('type-racer-sound') === 'on',
   )
   const inputRef = useRef<HTMLInputElement>(null)
+  const sentenceViewportRef = useRef<HTMLDivElement>(null)
+  const activeCharacterRef = useRef<HTMLSpanElement>(null)
   const previousErrorRef = useRef(false)
 
   useEffect(() => {
@@ -74,39 +106,47 @@ function App() {
 
   useEffect(() => {
     if (startedAt === null || finishedAt !== null) return
-    const timer = window.setInterval(() => setNow(Date.now()), 250)
+    const timer = window.setInterval(() => setNow(Date.now()), 100)
     return () => window.clearInterval(timer)
   }, [finishedAt, startedAt])
 
-  const loadRound = useCallback(async (packId: string) => {
+  const loadRound = useCallback(async (packId: string, mode: PracticeMode) => {
     setLoading(true)
     setError('')
 
     try {
-      const excludedSentence = round?.packId === packId ? round.sentence : undefined
-      const query = excludedSentence
-        ? `?exclude=${encodeURIComponent(excludedSentence)}`
-        : ''
-      const response = await fetch(`/api/practice/${packId}${query}`)
-      if (!response.ok) throw new Error('Could not load a sentence.')
+      const wordCount = mode.type === 'words' ? mode.value : TIMED_TEST_WORDS
+      const response = await fetch(
+        '/api/practice/' + encodeURIComponent(packId) + '?words=' + wordCount,
+      )
+      if (!response.ok) throw new Error('Could not load practice text.')
       const nextRound = (await response.json()) as PracticeRound
 
       setRound(nextRound)
       setSelectedPack(packId)
+      setPracticeMode(mode)
       setTyped('')
       setStartedAt(null)
       setFinishedAt(null)
       setTotalKeystrokes(0)
       setCorrectKeystrokes(0)
+      setActiveLineTop(0)
       setNow(Date.now())
       setScreen('practice')
       window.setTimeout(() => inputRef.current?.focus(), 50)
     } catch {
-      setError('Could not start that round. Check the server and try again.')
+      setError('Could not start that test. Check the server and try again.')
     } finally {
       setLoading(false)
     }
-  }, [round])
+  }, [])
+
+  const openPracticeSetup = (packId: string) => {
+    setSelectedPack(packId)
+    setRound(null)
+    setError('')
+    setScreen('practice-setup')
+  }
 
   const correctCount = useMemo(() => {
     if (!round) return 0
@@ -117,9 +157,66 @@ function App() {
 
   const hasError = Boolean(round && typed.length > correctCount)
   const elapsedMs = startedAt === null ? 0 : (finishedAt ?? now) - startedAt
+  const timeLimitMs = practiceMode.type === 'time' ? practiceMode.value * 1_000 : 0
+  const remainingMs = practiceMode.type === 'time'
+    ? Math.max(0, timeLimitMs - elapsedMs)
+    : 0
   const wpm = calculateWpm(correctCount, elapsedMs)
   const accuracy = calculateAccuracy(correctKeystrokes, totalKeystrokes)
-  const progress = round ? (correctCount / round.sentence.length) * 100 : 0
+  const progress = round
+    ? practiceMode.type === 'time'
+      ? Math.min(100, (elapsedMs / timeLimitMs) * 100)
+      : (correctCount / round.sentence.length) * 100
+    : 0
+
+  const updateActiveLine = useCallback(() => {
+    const activeCharacter = activeCharacterRef.current
+    const viewport = sentenceViewportRef.current
+    if (!activeCharacter || !viewport) {
+      setActiveLineTop(0)
+      return
+    }
+
+    const lineHeight = Number.parseFloat(window.getComputedStyle(viewport).lineHeight)
+    const lineIndex = Math.max(0, Math.round(activeCharacter.offsetTop / lineHeight))
+    setActiveLineTop(lineIndex * lineHeight)
+  }, [])
+
+  useLayoutEffect(() => {
+    updateActiveLine()
+  }, [correctCount, round, updateActiveLine])
+
+  useEffect(() => {
+    const viewport = sentenceViewportRef.current
+    if (!viewport || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(updateActiveLine)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [round, updateActiveLine])
+
+  useEffect(() => {
+    if (
+      practiceMode.type !== 'time'
+      || startedAt === null
+      || finishedAt !== null
+      || elapsedMs < timeLimitMs
+    ) return
+
+    const finish = startedAt + timeLimitMs
+    setFinishedAt(finish)
+    setSessionBest((best) => Math.max(best, calculateWpm(correctCount, timeLimitMs)))
+    playGameSound(soundEnabled, 'finish')
+    window.setTimeout(() => inputRef.current?.blur(), 0)
+  }, [
+    correctCount,
+    elapsedMs,
+    finishedAt,
+    practiceMode.type,
+    soundEnabled,
+    startedAt,
+    timeLimitMs,
+  ])
 
   useEffect(() => {
     if (hasError && !previousErrorRef.current) playGameSound(soundEnabled, 'error')
@@ -217,6 +314,92 @@ function App() {
     )
   }
 
+  if (screen === 'practice-setup' && selectedPack) {
+    const selectedPackLabel = packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
+    const options = PRACTICE_OPTIONS[practiceMode.type]
+
+    return (
+      <main className="app-shell practice-shell">
+        <nav className="topbar">
+          <button className="brand brand-button" onClick={returnHome} aria-label="Back to home">
+            <span className="brand-mark">T</span>
+            <span>TypeRacer</span>
+          </button>
+          <div className="nav-actions">
+            <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
+            <button className="text-button" onClick={returnHome}>Back home</button>
+          </div>
+        </nav>
+
+        <section className="practice-setup">
+          <div className="setup-heading">
+            <span className="eyebrow">Configure practice</span>
+            <h1>{selectedPackLabel}</h1>
+            <p>Choose how you want to train. Your test begins with the first keystroke.</p>
+          </div>
+
+          {error && <div className="error-banner" role="alert">{error}</div>}
+
+          <div className="setup-card">
+            <div className="setup-group">
+              <span className="setup-label">Test type</span>
+              <div className="option-row">
+                {(['words', 'time'] as PracticeModeType[]).map((type) => (
+                  <button
+                    className={practiceMode.type === type ? 'option-button selected' : 'option-button'}
+                    key={type}
+                    onClick={() => setPracticeMode({
+                      type,
+                      value: DEFAULT_PRACTICE_VALUES[type],
+                    })}
+                    aria-pressed={practiceMode.type === type}
+                  >
+                    <strong>{type === 'words' ? 'Words' : 'Time'}</strong>
+                    <small>{type === 'words' ? 'Finish a set amount' : 'Race the clock'}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="setup-group">
+              <span className="setup-label">
+                {practiceMode.type === 'words' ? 'Word count' : 'Duration'}
+              </span>
+              <div className="length-options">
+                {options.map((value) => (
+                  <button
+                    className={practiceMode.value === value ? 'length-button selected' : 'length-button'}
+                    key={value}
+                    onClick={() => setPracticeMode((mode) => ({ ...mode, value }))}
+                    aria-pressed={practiceMode.value === value}
+                  >
+                    {value}<small>{practiceMode.type === 'time' ? 's' : ''}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="setup-start">
+              <div>
+                <span>Your test</span>
+                <strong>
+                  {practiceMode.value} {practiceMode.type === 'words' ? 'words' : 'seconds'}
+                </strong>
+              </div>
+              <button
+                className="primary-button"
+                onClick={() => loadRound(selectedPack, practiceMode)}
+                disabled={loading}
+              >
+                {loading ? 'Preparing…' : 'Start test'}
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (screen === 'practice' && round) {
     const selectedPackLabel = packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
 
@@ -237,6 +420,9 @@ function App() {
           <div>
             <span className="eyebrow">Solo practice</span>
             <h1>{selectedPackLabel}</h1>
+            <span className="practice-mode-pill">
+              {practiceMode.value} {practiceMode.type === 'words' ? 'words' : 'seconds'}
+            </span>
           </div>
           <div className="best-score">
             <span>Session best</span>
@@ -248,7 +434,15 @@ function App() {
           <div className="stats-row" aria-live="polite">
             <div><span>Speed</span><strong>{wpm}</strong><small> WPM</small></div>
             <div><span>Accuracy</span><strong>{accuracy}</strong><small>%</small></div>
-            <div><span>Progress</span><strong>{Math.round(progress)}</strong><small>%</small></div>
+            <div>
+              <span>{practiceMode.type === 'time' ? 'Time left' : 'Progress'}</span>
+              <strong>
+                {practiceMode.type === 'time'
+                  ? Math.ceil(remainingMs / 1_000)
+                  : Math.round(progress)}
+              </strong>
+              <small>{practiceMode.type === 'time' ? ' s' : '%'}</small>
+            </div>
           </div>
 
           <div className="track" aria-label={`${Math.round(progress)} percent complete`}>
@@ -257,19 +451,32 @@ function App() {
             <div className="finish-line" aria-hidden="true" />
           </div>
 
-          <div className="sentence" aria-label={round.sentence}>
-            {round.sentence.split('').map((character, index) => {
-              let state = 'pending'
-              if (index < correctCount) state = 'correct'
-              else if (index === correctCount && hasError) state = 'wrong'
-              else if (index === correctCount && !finishedAt) state = 'current'
+          <div
+            className="sentence-viewport"
+            ref={sentenceViewportRef}
+            aria-label={round.sentence}
+          >
+            <div
+              className="sentence practice-sentence"
+              style={{ transform: `translateY(-${activeLineTop}px)` }}
+            >
+              {round.sentence.split('').map((character, index) => {
+                let state = 'pending'
+                if (index < correctCount) state = 'correct'
+                else if (index === correctCount && hasError) state = 'wrong'
+                else if (index === correctCount && !finishedAt) state = 'current'
 
-              return (
-                <span className={`character ${state}`} key={`${character}-${index}`}>
-                  {character === ' ' ? '\u00a0' : character}
-                </span>
-              )
-            })}
+                return (
+                  <span
+                    className={`character ${state}`}
+                    key={index}
+                    ref={index === correctCount ? activeCharacterRef : undefined}
+                  >
+                    {character}
+                  </span>
+                )
+              })}
+            </div>
           </div>
 
           <input
@@ -298,12 +505,21 @@ function App() {
             <div className="finish-icon">✓</div>
             <div>
               <span className="eyebrow">Round complete</span>
-              <h2>Clean run!</h2>
+              <h2>Test complete</h2>
               <p>{wpm} WPM with {accuracy}% accuracy</p>
             </div>
-            <button className="primary-button" onClick={() => loadRound(round.packId)} disabled={loading}>
-              {loading ? 'Loading…' : 'Next sentence'}
-            </button>
+            <div className="finish-actions">
+              <button className="secondary-button" onClick={() => setScreen('practice-setup')}>
+                Change mode
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => loadRound(round.packId, practiceMode)}
+                disabled={loading}
+              >
+                {loading ? 'Preparing…' : 'Repeat test'}
+              </button>
+            </div>
           </section>
         )}
       </main>
@@ -345,22 +561,26 @@ function App() {
           </button>
         </article>
         <article className="mode-card race-mode">
-          <div className="mode-icon">🏁</div>
-          <span className="eyebrow">Live now</span>
-          <h2>Race</h2>
-          <p>Race a full grid instantly, or open a private room for friends.</p>
+          <div className="race-mode-copy">
+            <div className="mode-icon">🏁</div>
+            <span className="eyebrow">Live now</span>
+            <h2>Race</h2>
+            <p>Race a full grid instantly, or open a private room for friends.</p>
+          </div>
           <div className="race-join">
-            <input
-              className="racer-name-input"
-              value={playerName}
-              onChange={(event) => setPlayerName(event.target.value.slice(0, 18))}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') startMultiplayer({ kind: 'quick' })
-              }}
-              placeholder="Your racer name"
-              aria-label="Your racer name"
-              maxLength={18}
-            />
+            <label className="racer-name-field">
+              <span>Racer name</span>
+              <input
+                className="racer-name-input"
+                value={playerName}
+                onChange={(event) => setPlayerName(event.target.value.slice(0, 18))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') startMultiplayer({ kind: 'quick' })
+                }}
+                placeholder="Enter your name"
+                maxLength={18}
+              />
+            </label>
             <div className="race-buttons">
               <button className="primary-button" onClick={() => startMultiplayer({ kind: 'quick' })}>
                 Quick match
@@ -408,7 +628,7 @@ function App() {
           {packs.map((pack) => {
             const details = PACK_DETAILS[pack.id]
             return (
-              <button className="pack-card" key={pack.id} onClick={() => loadRound(pack.id)} disabled={loading}>
+              <button className="pack-card" key={pack.id} onClick={() => openPracticeSetup(pack.id)}>
                 <span className="pack-icon">{details?.icon ?? '⌨️'}</span>
                 <span className="pack-copy">
                   <strong>{pack.label}</strong>
