@@ -198,3 +198,28 @@ export function RaceCar({
     </span>
   )
 }
+
+export function RacePageTransition({
+  carId,
+  trailId,
+}: {
+  carId: string
+  trailId: string
+}) {
+  return (
+    <div className='page-transition' aria-hidden='true'>
+      <div className='page-transition-curtain' />
+      <div className='page-transition-road'>
+        <span className='page-transition-speed-lines' />
+        <span className='page-transition-car'>
+          <RaceCar
+            progress={0}
+            carId={carId}
+            trailId={trailId}
+            active
+          />
+        </span>
+      </div>
+    </div>
+  )
+}

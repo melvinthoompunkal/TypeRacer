@@ -490,6 +490,106 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 @keyframes exhaust { from { transform: translateX(5px) scale(0.4); opacity: 0.65; } to { transform: translateX(-9px) scale(1.3); opacity: 0; } }
 @keyframes trail-flow { from { opacity: 0.45; scale: 0.82 1; } to { opacity: 1; scale: 1 1; } }
 
+.page-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  pointer-events: all;
+  isolation: isolate;
+}
+
+.page-transition-curtain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--page);
+  box-shadow: 0 0 70px rgba(0, 0, 0, 0.28);
+  animation: page-transition-curtain 650ms cubic-bezier(0.76, 0, 0.24, 1) both;
+}
+
+.page-transition-road {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 112px;
+  transform: translateY(-50%);
+  border-block: 1px solid rgba(255, 255, 255, 0.13);
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent),
+    #24262a;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.24);
+  animation: page-transition-road 650ms cubic-bezier(0.76, 0, 0.24, 1) both;
+}
+
+.page-transition-road::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: repeating-linear-gradient(90deg, transparent 0 42px, rgba(247, 243, 235, 0.75) 42px 92px);
+}
+
+.page-transition-speed-lines {
+  position: absolute;
+  inset: 18px 0;
+  opacity: 0.24;
+  background: repeating-linear-gradient(0deg, transparent 0 20px, rgba(255, 255, 255, 0.35) 20px 21px);
+  animation: transition-speed-lines 160ms linear infinite;
+}
+
+.page-transition-car {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 0;
+  width: 112px;
+  height: 56px;
+  transform: translate(-140px, -50%);
+  animation: page-transition-car 650ms cubic-bezier(0.34, 0.82, 0.25, 1) both;
+}
+
+.page-transition-car .race-car {
+  top: 0;
+  left: 0 !important;
+  width: 112px;
+  height: 56px;
+  transform: none;
+  transition: none;
+}
+
+.page-transition-car .race-car .car-trail {
+  right: calc(100% - 18px);
+  top: 24px;
+  width: 100px;
+  transform: scaleY(1.35);
+}
+
+@keyframes page-transition-curtain {
+  0% { transform: translateX(-105%); }
+  44%, 58% { transform: translateX(0); }
+  100% { transform: translateX(105%); }
+}
+
+@keyframes page-transition-road {
+  0% { clip-path: inset(0 100% 0 0); }
+  44%, 58% { clip-path: inset(0); }
+  100% { clip-path: inset(0 0 0 100%); }
+}
+
+@keyframes page-transition-car {
+  0% { transform: translate(-140px, -50%); }
+  100% { transform: translate(calc(100vw + 140px), -50%); }
+}
+
+@keyframes transition-speed-lines {
+  to { transform: translateX(-92px); }
+}
+
 .sentence {
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: clamp(23px, 3.3vw, 36px);

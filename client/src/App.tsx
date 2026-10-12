@@ -14,6 +14,7 @@ import {
   playGameSound,
   primeGameAudio,
   RaceCar,
+  RacePageTransition,
   SoundButton,
   ThemeButton,
   type ColorTheme,
@@ -107,6 +108,7 @@ function App() {
   const [now, setNow] = useState(Date.now())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isPageTransitioning, setIsPageTransitioning] = useState(false)
   const [activeLineTop, setActiveLineTop] = useState(0)
   const [soundEnabled, setSoundEnabled] = useState(
     () => window.localStorage.getItem('type-racer-sound') === 'on',
@@ -121,6 +123,11 @@ function App() {
   const activeCharacterRef = useRef<HTMLSpanElement>(null)
   const previousErrorRef = useRef(false)
   const placementStartPromiseRef = useRef<Promise<void> | null>(null)
+  const pageTransitionTimersRef = useRef<number[]>([])
+
+  useEffect(() => () => {
+    pageTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -559,6 +566,24 @@ function App() {
     setScreen('multiplayer')
   }
 
+  const startQuickMatch = () => {
+    if (isPageTransitioning) return
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      startMultiplayer({ kind: 'quick' })
+      return
+    }
+
+    setIsPageTransitioning(true)
+    pageTransitionTimersRef.current = [
+      window.setTimeout(() => startMultiplayer({ kind: 'quick' }), 285),
+      window.setTimeout(() => {
+        setIsPageTransitioning(false)
+        pageTransitionTimersRef.current = []
+      }, 650),
+    ]
+  }
+
   if (!authChecked) {
     return (
       <main className="app-shell auth-shell auth-loading">
@@ -587,14 +612,19 @@ function App() {
 
   if (screen === 'multiplayer') {
     return (
-      <MultiplayerRace
-        entry={multiplayerEntry}
-        soundEnabled={soundEnabled}
-        onToggleSound={toggleSound}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onExit={returnHome}
-      />
+      <>
+        <MultiplayerRace
+          entry={multiplayerEntry}
+          soundEnabled={soundEnabled}
+          onToggleSound={toggleSound}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onExit={returnHome}
+        />
+        {isPageTransitioning && (
+          <RacePageTransition carId={user.equippedCar} trailId={user.equippedTrail} />
+        )}
+      </>
     )
   }
 
@@ -921,7 +951,8 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <>
+      <main className="app-shell" aria-busy={isPageTransitioning}>
       <nav className="topbar">
         <div className="brand">
           <span className="brand-mark">T</span>
@@ -987,7 +1018,11 @@ function App() {
               </div>
             )}
             <div className="race-buttons">
-              <button className="primary-button" onClick={() => startMultiplayer({ kind: 'quick' })}>
+              <button
+                className="primary-button"
+                onClick={startQuickMatch}
+                disabled={isPageTransitioning}
+              >
                 Quick match
               </button>
               <button className="secondary-button" onClick={() => startMultiplayer({ kind: 'create' })}>
@@ -1047,7 +1082,11 @@ function App() {
       </section>
 
       <footer>Built for quick fingers and friendly competition.</footer>
-    </main>
+      </main>
+      {isPageTransitioning && (
+        <RacePageTransition carId={user.equippedCar} trailId={user.equippedTrail} />
+      )}
+    </>
   )
 }
 
