@@ -486,6 +486,15 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 
 .race-pack { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
 .multiplayer-race { padding: 48px 0; }
+.multiplayer-race .race-card { overflow: hidden; }
+.competitive-sentence {
+  width: min(100%, 960px);
+  margin-inline: auto;
+  padding-inline: clamp(10px, 3vw, 34px);
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .race-status-line { display: flex; align-items: end; justify-content: space-between; margin-bottom: 34px; }
 .race-status-line h1 { margin: 0; font-size: 46px; letter-spacing: -0.05em; }
 .live-stats { display: flex; gap: 24px; color: var(--muted); font-size: 12px; }

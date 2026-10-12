@@ -550,7 +550,7 @@ export default function MultiplayerRace({
             </div>
           )}
 
-          <div className="sentence" aria-label={race.sentence}>
+          <div className="sentence competitive-sentence" aria-label={race.sentence}>
             {race.sentence.split('').flatMap((character, index) => {
               let state = 'pending'
               if (skippedIndices.has(index)) state = 'skipped'
@@ -559,7 +559,7 @@ export default function MultiplayerRace({
 
               const targetCharacter = (
                 <span className={'character ' + state} key={'target-' + index}>
-                  {character === ' ' ? '\u00a0' : character}
+                  {character}
                 </span>
               )
 
