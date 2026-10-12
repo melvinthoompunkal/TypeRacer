@@ -89,7 +89,7 @@ export function SoundButton({
   )
 }
 
-const CAR_COLORS = ['#b5f53d', '#9d7bff', '#4dd7ff', '#ff8a5b']
+const CAR_COLORS = ['#a15f15', '#222428', '#6e7075', '#a63d40']
 
 export function racerColor(index: number) {
   return CAR_COLORS[index % CAR_COLORS.length]
