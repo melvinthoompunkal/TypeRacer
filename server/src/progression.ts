@@ -9,7 +9,7 @@ export const CAR_CATALOG = [
     id: 'classic',
     name: 'Classic',
     price: 0,
-    description: 'The original TypeRacer roadster.',
+    description: 'The original TypingRacer roadster.',
     color: '#a15f15',
     accent: '#f0c77a',
   },

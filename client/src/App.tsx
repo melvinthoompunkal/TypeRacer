@@ -564,7 +564,7 @@ function App() {
       <main className="app-shell auth-shell auth-loading">
         <div className="brand">
           <span className="brand-mark">T</span>
-          <span>TypeRacer</span>
+          <span>TypingRacer</span>
         </div>
         <p>Checking your session…</p>
       </main>
@@ -627,7 +627,7 @@ function App() {
         <nav className="topbar">
           <button className="brand brand-button" onClick={returnHome} aria-label="Back to home">
             <span className="brand-mark">T</span>
-            <span>TypeRacer</span>
+            <span>TypingRacer</span>
           </button>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
@@ -717,7 +717,7 @@ function App() {
         <nav className="topbar">
           <button className="brand brand-button" onClick={returnHome} aria-label="Back to home">
             <span className="brand-mark">T</span>
-            <span>TypeRacer</span>
+            <span>TypingRacer</span>
           </button>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
@@ -925,7 +925,7 @@ function App() {
       <nav className="topbar">
         <div className="brand">
           <span className="brand-mark">T</span>
-          <span>TypeRacer</span>
+          <span>TypingRacer</span>
         </div>
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />

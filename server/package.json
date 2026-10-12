@@ -1,5 +1,5 @@
 {
-  "name": "@type-racer/server",
+  "name": "@typing-racer/server",
   "version": "1.0.0",
   "private": true,
   "type": "module",

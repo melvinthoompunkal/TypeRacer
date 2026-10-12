@@ -87,7 +87,7 @@ export default function AuthScreen({
       <nav className="topbar">
         <div className="brand">
           <span className="brand-mark">T</span>
-          <span>TypeRacer</span>
+          <span>TypingRacer</span>
         </div>
         <ThemeButton theme={theme} onToggle={onToggleTheme} />
       </nav>

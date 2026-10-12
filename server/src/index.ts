@@ -100,18 +100,18 @@ app.use((error: unknown, _request: Request, response: Response, next: NextFuncti
     next(error)
     return
   }
-  console.error('TypeRacer request failed:', error)
+  console.error('TypingRacer request failed:', error)
   response.status(500).json({ error: 'Something went wrong on the server.' })
 })
 
 httpServer.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
     console.error(
-      'Cannot start TypeRacer: port ' + config.port + ' is already in use.\n'
+      'Cannot start TypingRacer: port ' + config.port + ' is already in use.\n'
       + 'Stop the existing server, or set PORT to another value before running npm run dev.',
     )
   } else {
-    console.error('TypeRacer server failed to start:', error)
+    console.error('TypingRacer server failed to start:', error)
   }
 
   process.exit(1)
@@ -121,7 +121,7 @@ initializeAuthDatabase()
   .then(() => initializeProgressionDatabase())
   .then(() => {
     httpServer.listen(config.port, config.host, () => {
-      console.log(`TypeRacer server listening on ${config.host}:${config.port}`)
+      console.log(`TypingRacer server listening on ${config.host}:${config.port}`)
     })
   })
   .catch((error) => {

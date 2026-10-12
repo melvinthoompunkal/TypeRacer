@@ -365,7 +365,7 @@ export default function MultiplayerRace({
         <nav className="topbar">
           <div className="brand">
             <span className="brand-mark">T</span>
-            <span>TypeRacer</span>
+            <span>TypingRacer</span>
           </div>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
@@ -442,7 +442,7 @@ export default function MultiplayerRace({
         <nav className="topbar">
           <div className="brand">
             <span className="brand-mark">T</span>
-            <span>TypeRacer</span>
+            <span>TypingRacer</span>
           </div>
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />
@@ -518,7 +518,7 @@ export default function MultiplayerRace({
       <nav className="topbar">
         <div className="brand">
           <span className="brand-mark">T</span>
-          <span>TypeRacer</span>
+          <span>TypingRacer</span>
         </div>
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />

@@ -147,7 +147,7 @@ export default function ProfileStore({
       <nav className="topbar">
         <button className="brand brand-button" onClick={onBack} aria-label="Back to home">
           <span className="brand-mark">T</span>
-          <span>TypeRacer</span>
+          <span>TypingRacer</span>
         </button>
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={onToggleSound} />

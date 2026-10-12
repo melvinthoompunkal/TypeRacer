@@ -1,4 +1,4 @@
-# TypeRacer
+# TypingRacer
 
 A dark, mobile-friendly multiplayer typing race game with solo practice, quick matches against human-like server bots, private room codes, and rematches.
 
@@ -24,13 +24,13 @@ Health check: `GET /health` returns `ok`.
 
 ## Railway
 
-Deploy this repository as one TypeRacer application service plus one PostgreSQL service. The `client` and `server` folders are npm workspaces built together by the root `Dockerfile`; they should not be deployed as separate Railway application services.
+Deploy this repository as one TypingRacer application service plus one PostgreSQL service. The `client` and `server` folders are npm workspaces built together by the root `Dockerfile`; they should not be deployed as separate Railway application services.
 
 1. Push this folder to a Git repository and create a Railway project from it.
 2. Add a service from the repository. Railway detects the root `Dockerfile` and builds the production image automatically.
 3. Under **Settings -> Networking**, generate a public domain.
 4. Add a PostgreSQL database to the same Railway project.
-5. On the TypeRacer service, add a `DATABASE_URL` reference variable that points to the PostgreSQL service's `DATABASE_URL` (for example `${{Postgres.DATABASE_URL}}`; use the actual database service name).
+5. On the TypingRacer service, add a `DATABASE_URL` reference variable that points to the PostgreSQL service's `DATABASE_URL` (for example `${{Postgres.DATABASE_URL}}`; use the actual database service name).
 6. Set the service health-check path to `/health`, then deploy. The server creates the account and session tables automatically.
 
 Keep the service at **one replica**. Matchmaking rooms and Socket.IO session state are held in this process's memory, so multiple replicas require a shared room store and a Socket.IO-compatible cross-replica adapter first.
