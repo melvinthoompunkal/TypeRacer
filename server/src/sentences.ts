@@ -1,4 +1,5 @@
 import sentenceData from './sentences.json' with { type: 'json' }
+import { generatePracticeText } from './practiceText.js'
 
 export const PACK_LABELS = {
   'movie-quotes': 'Movie Quotes',
@@ -29,21 +30,7 @@ export function getRandomSentence(packId: PackId, excludedSentence?: string): st
 }
 
 export function getPracticeText(packId: PackId, wordCount: number): string {
-  const sentences = sentencePacks[packId]
-  const words: string[] = []
-  let previousIndex = -1
-
-  while (words.length < wordCount) {
-    let sentenceIndex = Math.floor(Math.random() * sentences.length)
-    if (sentences.length > 1 && sentenceIndex === previousIndex) {
-      sentenceIndex = (sentenceIndex + 1) % sentences.length
-    }
-
-    words.push(...sentences[sentenceIndex].split(/\s+/))
-    previousIndex = sentenceIndex
-  }
-
-  return words.slice(0, wordCount).join(' ')
+  return generatePracticeText(packId, wordCount)
 }
 
 export function getPackSummaries() {
