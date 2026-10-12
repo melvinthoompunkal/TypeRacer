@@ -43,7 +43,7 @@ function keyClick(context: AudioContext, backspace = false) {
 
   oscillator.type = backspace ? 'triangle' : 'square'
   oscillator.frequency.setValueAtTime(frequency, start)
-  gain.gain.setValueAtTime(backspace ? 0.012 : 0.009, start)
+  gain.gain.setValueAtTime(backspace ? 0.022 : 0.018, start)
   gain.gain.exponentialRampToValueAtTime(0.0001, start + (backspace ? 0.035 : 0.022))
   oscillator.connect(gain)
   gain.connect(context.destination)
