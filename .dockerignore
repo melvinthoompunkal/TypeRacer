@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.codex
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+**/dist
+coverage
+frontend_example
+skills
+*.log
+README.md

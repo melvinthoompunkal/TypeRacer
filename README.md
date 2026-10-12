@@ -25,9 +25,13 @@ Health check: `GET /health` returns `ok`.
 ## Railway
 
 1. Push this folder to a Git repository and create a Railway project from it.
-2. Railway's Railpack detects this Node workspace and its package scripts automatically.
-3. If commands need to be entered manually, use `npm run build` for Build and `npm start` for Start.
+2. Add a service from the repository. Railway detects the root `Dockerfile` and builds the production image automatically.
+3. Under **Settings -> Networking**, generate a public domain.
 4. Set the service health-check path to `/health`. No variables are required because Railway supplies `PORT`.
+
+Keep the service at **one replica**. Matchmaking rooms and Socket.IO session state are held in this process's memory, so multiple replicas require a shared room store and a Socket.IO-compatible cross-replica adapter first.
+
+The Docker image builds both workspaces, contains only production dependencies and compiled output, runs as a non-root user, and checks `/health` internally. If deploying without Docker, Railway's Railpack can also use `npm run build` as the build command and `npm start` as the start command.
 
 The client uses relative `/api` and Socket.IO URLs in production, so changing the Railway domain requires no code changes.
 
