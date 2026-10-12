@@ -43,6 +43,12 @@ type PracticeRound = {
   sentence: string
 }
 
+type PlacementResult = {
+  elo: number
+  wpm: number
+  accuracy: number
+}
+
 const PRACTICE_OPTIONS: Record<PracticeModeType, number[]> = {
   words: [10, 25, 50, 100],
   time: [15, 30, 60, 120],
@@ -93,6 +99,11 @@ function App() {
   const [totalKeystrokes, setTotalKeystrokes] = useState(0)
   const [correctKeystrokes, setCorrectKeystrokes] = useState(0)
   const [sessionBest, setSessionBest] = useState(0)
+  const [placementEligible, setPlacementEligible] = useState(false)
+  const [isPlacementTest, setIsPlacementTest] = useState(false)
+  const [placementChallengeId, setPlacementChallengeId] = useState<string | null>(null)
+  const [placementSaving, setPlacementSaving] = useState(false)
+  const [placementResult, setPlacementResult] = useState<PlacementResult | null>(null)
   const [now, setNow] = useState(Date.now())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -109,6 +120,7 @@ function App() {
   const sentenceViewportRef = useRef<HTMLDivElement>(null)
   const activeCharacterRef = useRef<HTMLSpanElement>(null)
   const previousErrorRef = useRef(false)
+  const placementStartPromiseRef = useRef<Promise<void> | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -143,6 +155,26 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!user || user.isGuest) {
+      setPlacementEligible(false)
+      return
+    }
+    if (screen !== 'home') return
+
+    fetch('/api/profile', { credentials: 'same-origin' })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          profile?: { placementCompleted: boolean; racesPlayed: number }
+        }
+        if (!response.ok || !payload.profile) throw new Error('Could not load placement status.')
+        setPlacementEligible(
+          !payload.profile.placementCompleted && payload.profile.racesPlayed === 0,
+        )
+      })
+      .catch(() => setPlacementEligible(false))
+  }, [screen, user?.id, user?.isGuest])
+
+  useEffect(() => {
     if (startedAt === null || finishedAt !== null) return
     const timer = window.setInterval(() => setNow(Date.now()), 100)
     return () => window.clearInterval(timer)
@@ -161,6 +193,10 @@ function App() {
       const nextRound = (await response.json()) as PracticeRound
 
       setRound(nextRound)
+      setIsPlacementTest(false)
+      setPlacementChallengeId(null)
+      setPlacementResult(null)
+      placementStartPromiseRef.current = null
       setSelectedPack(packId)
       setPracticeMode(mode)
       setTyped('')
@@ -179,6 +215,51 @@ function App() {
       setLoading(false)
     }
   }, [])
+
+  const startPlacementTest = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await fetch('/api/profile/placement-test', {
+        credentials: 'same-origin',
+      })
+      const payload = await response.json() as {
+        challengeId?: string
+        sentence?: string
+        error?: string
+      }
+      if (!response.ok || !payload.challengeId || !payload.sentence) {
+        throw new Error(payload.error ?? 'Could not start the placement test.')
+      }
+
+      setRound({ packId: 'famous-lines', sentence: payload.sentence })
+      setSelectedPack('famous-lines')
+      setPracticeMode({ type: 'words', value: 50 })
+      setIsPlacementTest(true)
+      setPlacementChallengeId(payload.challengeId)
+      setPlacementResult(null)
+      setPlacementSaving(false)
+      placementStartPromiseRef.current = null
+      setTyped('')
+      setSkippedIndices(new Set())
+      setStartedAt(null)
+      setFinishedAt(null)
+      setTotalKeystrokes(0)
+      setCorrectKeystrokes(0)
+      setActiveLineTop(0)
+      setNow(Date.now())
+      setScreen('practice')
+      window.setTimeout(() => inputRef.current?.focus(), 50)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Could not start the placement test.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const openPracticeSetup = (packId: string) => {
     setSelectedPack(packId)
@@ -280,6 +361,44 @@ function App() {
     setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')
   }
 
+  const completePlacementTest = async (
+    finalText: string,
+    finalTotalKeystrokes: number,
+    finalCorrectKeystrokes: number,
+  ) => {
+    if (!placementChallengeId) return
+    setPlacementSaving(true)
+    setError('')
+
+    try {
+      await placementStartPromiseRef.current
+      const response = await fetch('/api/profile/placement-test/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          challengeId: placementChallengeId,
+          text: finalText,
+          totalKeystrokes: finalTotalKeystrokes,
+          correctKeystrokes: finalCorrectKeystrokes,
+        }),
+      })
+      const payload = await response.json() as PlacementResult & { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not save your placement.')
+
+      setPlacementResult(payload)
+      setPlacementEligible(false)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Could not save your placement.',
+      )
+    } finally {
+      setPlacementSaving(false)
+    }
+  }
+
   const handleInput = (rawValue: string) => {
     if (!round || finishedAt !== null) return
 
@@ -305,10 +424,32 @@ function App() {
     if (startedAt === null) {
       setStartedAt(start)
       setNow(start)
+      if (isPlacementTest && placementChallengeId) {
+        const startRequest = fetch('/api/profile/placement-test/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ challengeId: placementChallengeId }),
+        }).then(async (response) => {
+          if (response.ok) return
+          const payload = await response.json() as { error?: string }
+          throw new Error(payload.error ?? 'Could not time the placement test.')
+        })
+        placementStartPromiseRef.current = startRequest
+        void startRequest.catch((requestError) => {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Could not time the placement test.',
+          )
+        })
+      }
     }
 
-    setTotalKeystrokes((value) => value + addedKeystrokes)
-    setCorrectKeystrokes((value) => value + addedCorrect)
+    const nextTotalKeystrokes = totalKeystrokes + addedKeystrokes
+    const nextCorrectKeystrokes = correctKeystrokes + addedCorrect
+    setTotalKeystrokes(nextTotalKeystrokes)
+    setCorrectKeystrokes(nextCorrectKeystrokes)
     setTyped(accepted)
 
     if (accepted === round.sentence) {
@@ -321,6 +462,13 @@ function App() {
       setSessionBest((best) => Math.max(best, finalWpm))
       playGameSound(soundEnabled, 'finish')
       window.setTimeout(() => inputRef.current?.blur(), 0)
+      if (isPlacementTest) {
+        void completePlacementTest(
+          accepted,
+          nextTotalKeystrokes,
+          nextCorrectKeystrokes,
+        )
+      }
     }
   }
 
@@ -363,6 +511,7 @@ function App() {
     if (!hasError && round.sentence[correctCount] === ' ') return
 
     event.preventDefault()
+    if (isPlacementTest) return
     skipCurrentWord()
   }
 
@@ -371,6 +520,11 @@ function App() {
     setRound(null)
     setTyped('')
     setError('')
+    setIsPlacementTest(false)
+    setPlacementChallengeId(null)
+    setPlacementResult(null)
+    setPlacementSaving(false)
+    placementStartPromiseRef.current = null
   }
 
   const logout = async () => {
@@ -552,7 +706,9 @@ function App() {
   }
 
   if (screen === 'practice' && round) {
-    const selectedPackLabel = packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
+    const selectedPackLabel = isPlacementTest
+      ? 'Skill placement'
+      : packs.find((pack) => pack.id === selectedPack)?.label ?? 'Practice'
 
     return (
       <main className="app-shell practice-shell">
@@ -566,23 +722,35 @@ function App() {
             <ThemeButton theme={theme} onToggle={toggleTheme} />
             <span className="account-name">@{user.username}</span>
             <button className="text-button" onClick={logout}>Log out</button>
-            <button className="text-button" onClick={returnHome}>Exit practice</button>
+            <button className="text-button" onClick={returnHome}>
+              {isPlacementTest ? 'Exit test' : 'Exit practice'}
+            </button>
           </div>
         </nav>
 
         <section className="practice-header">
           <div>
-            <span className="eyebrow">Solo practice</span>
+            <span className="eyebrow">
+              {isPlacementTest ? 'Optional placement' : 'Solo practice'}
+            </span>
             <h1>{selectedPackLabel}</h1>
             <span className="practice-mode-pill">
-              {practiceMode.value} {practiceMode.type === 'words' ? 'words' : 'seconds'}
+              {isPlacementTest
+                ? '50 words · one time'
+                : practiceMode.value + ' '
+                  + (practiceMode.type === 'words' ? 'words' : 'seconds')}
             </span>
           </div>
           <div className="best-score">
-            <span>Session best</span>
-            <strong>{sessionBest}<small> WPM</small></strong>
+            <span>{isPlacementTest ? 'Starting ELO' : 'Session best'}</span>
+            <strong>
+              {isPlacementTest ? 1_000 : sessionBest}
+              {!isPlacementTest && <small> WPM</small>}
+            </strong>
           </div>
         </section>
+
+        {error && <div className="error-banner" role="alert">{error}</div>}
 
         <section className="race-card" onClick={() => inputRef.current?.focus()}>
           <div className="stats-row" aria-live="polite">
@@ -675,7 +843,7 @@ function App() {
                 : hasError
                   ? 'Backspace ' + wrongCharacters.length
                     + ' wrong letter' + (wrongCharacters.length === 1 ? '' : 's')
-                    + ', or press Space to skip'
+                    + (isPlacementTest ? ' to continue' : ', or press Space to skip')
                   : 'Keep going'}
             </button>
           )}
@@ -685,21 +853,64 @@ function App() {
           <section className="finish-card" aria-live="polite">
             <div className="finish-icon">✓</div>
             <div>
-              <span className="eyebrow">Round complete</span>
-              <h2>Test complete</h2>
-              <p>{wpm} WPM with {accuracy}% accuracy</p>
+              <span className="eyebrow">
+                {isPlacementTest ? 'Placement complete' : 'Round complete'}
+              </span>
+              <h2>
+                {isPlacementTest
+                  ? placementSaving
+                    ? 'Calculating your rating…'
+                    : placementResult
+                      ? 'You placed at ' + placementResult.elo + ' ELO'
+                      : 'Placement needs another try'
+                  : 'Test complete'}
+              </h2>
+              <p>
+                {isPlacementTest && placementResult
+                  ? placementResult.wpm + ' WPM with '
+                    + placementResult.accuracy + '% accuracy'
+                  : !isPlacementTest
+                    ? wpm + ' WPM with ' + accuracy + '% accuracy'
+                    : 'Your rating has not changed yet.'}
+              </p>
             </div>
             <div className="finish-actions">
-              <button className="secondary-button" onClick={() => setScreen('practice-setup')}>
-                Change mode
-              </button>
-              <button
-                className="primary-button"
-                onClick={() => loadRound(round.packId, practiceMode)}
-                disabled={loading}
-              >
-                {loading ? 'Preparing…' : 'Repeat test'}
-              </button>
+              {isPlacementTest ? (
+                <>
+                  {!placementResult && !placementSaving && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => completePlacementTest(
+                        typed,
+                        totalKeystrokes,
+                        correctKeystrokes,
+                      )}
+                    >
+                      Save again
+                    </button>
+                  )}
+                  <button
+                    className="primary-button"
+                    onClick={returnHome}
+                    disabled={placementSaving}
+                  >
+                    Back home
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="secondary-button" onClick={() => setScreen('practice-setup')}>
+                    Change mode
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={() => loadRound(round.packId, practiceMode)}
+                    disabled={loading}
+                  >
+                    {loading ? 'Preparing…' : 'Repeat test'}
+                  </button>
+                </>
+              )}
             </div>
           </section>
         )}
@@ -758,6 +969,21 @@ function App() {
               <span>Racing as</span>
               <strong>@{user.username}</strong>
             </div>
+            {!user.isGuest && placementEligible && (
+              <div className="placement-invite">
+                <div>
+                  <strong>Test your speed</strong>
+                  <span>Optional. Skip it and you still begin at 1000 ELO.</span>
+                </div>
+                <button
+                  className="text-button"
+                  onClick={startPlacementTest}
+                  disabled={loading}
+                >
+                  {loading ? 'Preparing…' : 'Take test'}
+                </button>
+              </div>
+            )}
             <div className="race-buttons">
               <button className="primary-button" onClick={() => startMultiplayer({ kind: 'quick' })}>
                 Quick match

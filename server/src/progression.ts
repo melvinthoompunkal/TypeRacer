@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import { Router, type Request, type Response } from 'express'
 import type { Pool, PoolClient } from 'pg'
 import { getAuthenticatedUser, getDatabasePool } from './auth.js'
+import { generatePracticeText } from './practiceText.js'
 
 export const CAR_CATALOG = [
   {
@@ -83,7 +85,21 @@ type ProfileRow = {
   podiums: number
   equippedCar: CarId
   equippedTrail: TrailId
+  placementCompleted: boolean
+  placementWpm: number | null
+  placementAccuracy: number | null
 }
+
+type PlacementChallenge = {
+  id: string
+  sentence: string
+  issuedAt: number
+  startedAt: number | null
+}
+
+const PLACEMENT_WORD_COUNT = 50
+const PLACEMENT_EXPIRY_MS = 15 * 60 * 1_000
+const placementChallenges = new Map<string, PlacementChallenge>()
 
 export type RaceRewardInput = {
   userId: string
@@ -96,6 +112,13 @@ export type RaceReward = {
   creditsEarned: number
   elo: number
   credits: number
+}
+
+export function calculatePlacementElo(wpm: number, accuracy: number) {
+  const safeWpm = Math.min(200, Math.max(0, Number.isFinite(wpm) ? wpm : 0))
+  const safeAccuracy = Math.min(100, Math.max(0, Number.isFinite(accuracy) ? accuracy : 0))
+  const effectiveWpm = safeWpm * (safeAccuracy / 100) ** 2
+  return Math.min(1_800, Math.max(600, Math.round(1_000 + (effectiveWpm - 42) * 15)))
 }
 
 export async function getPlayerSkillRating(userId: string) {
@@ -133,7 +156,10 @@ async function loadProfile(database: Pool | PoolClient, userId: string) {
   await ensureProfile(database, userId)
   const profileResult = await database.query<ProfileRow>(
     `SELECT elo, credits, races_played AS "racesPlayed", wins, podiums,
-            equipped_car AS "equippedCar", equipped_trail AS "equippedTrail"
+            equipped_car AS "equippedCar", equipped_trail AS "equippedTrail",
+            placement_completed AS "placementCompleted",
+            placement_wpm AS "placementWpm",
+            placement_accuracy AS "placementAccuracy"
      FROM user_profiles WHERE user_id = $1`,
     [userId],
   )
@@ -201,11 +227,21 @@ export async function initializeProgressionDatabase() {
       podiums INTEGER NOT NULL DEFAULT 0 CHECK (podiums >= 0),
       equipped_car VARCHAR(32) NOT NULL DEFAULT 'classic',
       equipped_trail VARCHAR(32) NOT NULL DEFAULT 'none',
+      placement_completed BOOLEAN NOT NULL DEFAULT FALSE,
+      placement_wpm INTEGER CHECK (placement_wpm >= 0),
+      placement_accuracy INTEGER CHECK (placement_accuracy BETWEEN 0 AND 100),
+      placement_completed_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     ALTER TABLE user_profiles
       ADD COLUMN IF NOT EXISTS equipped_trail VARCHAR(32) NOT NULL DEFAULT 'none';
+
+    ALTER TABLE user_profiles
+      ADD COLUMN IF NOT EXISTS placement_completed BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS placement_wpm INTEGER CHECK (placement_wpm >= 0),
+      ADD COLUMN IF NOT EXISTS placement_accuracy INTEGER CHECK (placement_accuracy BETWEEN 0 AND 100),
+      ADD COLUMN IF NOT EXISTS placement_completed_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS user_cars (
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -298,6 +334,137 @@ profileRouter.get('/', async (request, response, next) => {
     })
   } catch (error) {
     next(error)
+  }
+})
+
+profileRouter.get('/placement-test', async (request, response, next) => {
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const profile = await loadProfile(authenticated.database, authenticated.user.id)
+    if (profile.placementCompleted || profile.racesPlayed > 0) {
+      response.status(409).json({ error: 'Placement is only available before your first race.' })
+      return
+    }
+
+    const challenge: PlacementChallenge = {
+      id: randomUUID(),
+      sentence: generatePracticeText('famous-lines', PLACEMENT_WORD_COUNT),
+      issuedAt: Date.now(),
+      startedAt: null,
+    }
+    placementChallenges.set(authenticated.user.id, challenge)
+    response.set('Cache-Control', 'no-store').json({
+      challengeId: challenge.id,
+      sentence: challenge.sentence,
+      startingElo: 1_000,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+profileRouter.post('/placement-test/start', async (request, response, next) => {
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const challenge = placementChallenges.get(authenticated.user.id)
+    if (
+      !challenge
+      || challenge.id !== request.body?.challengeId
+      || Date.now() - challenge.issuedAt > PLACEMENT_EXPIRY_MS
+    ) {
+      placementChallenges.delete(authenticated.user.id)
+      response.status(410).json({ error: 'That placement test expired. Start a new one.' })
+      return
+    }
+
+    challenge.startedAt ??= Date.now()
+    response.json({ started: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+profileRouter.post('/placement-test/complete', async (request, response, next) => {
+  let client: PoolClient | null = null
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const challenge = placementChallenges.get(authenticated.user.id)
+    const now = Date.now()
+    if (
+      !challenge
+      || challenge.id !== request.body?.challengeId
+      || now - challenge.issuedAt > PLACEMENT_EXPIRY_MS
+    ) {
+      placementChallenges.delete(authenticated.user.id)
+      response.status(410).json({ error: 'That placement test expired. Start a new one.' })
+      return
+    }
+    if (challenge.startedAt === null || now - challenge.startedAt < 5_000) {
+      response.status(400).json({ error: 'The placement test did not record a valid typing time.' })
+      return
+    }
+
+    const totalKeystrokes = Number(request.body?.totalKeystrokes)
+    const correctKeystrokes = Number(request.body?.correctKeystrokes)
+    if (
+      request.body?.text !== challenge.sentence
+      || !Number.isInteger(totalKeystrokes)
+      || !Number.isInteger(correctKeystrokes)
+      || correctKeystrokes < challenge.sentence.length
+      || totalKeystrokes < correctKeystrokes
+      || totalKeystrokes > challenge.sentence.length * 20
+    ) {
+      response.status(400).json({ error: 'The placement result could not be verified.' })
+      return
+    }
+
+    const elapsedMs = now - challenge.startedAt
+    const wpm = Math.round((challenge.sentence.length / 5) / (elapsedMs / 60_000))
+    const accuracy = Math.round((correctKeystrokes / totalKeystrokes) * 100)
+    const elo = calculatePlacementElo(wpm, accuracy)
+
+    client = await authenticated.database.connect()
+    await client.query('BEGIN')
+    await ensureProfile(client, authenticated.user.id)
+    const profileResult = await client.query<{
+      placementCompleted: boolean
+      racesPlayed: number
+    }>(
+      `SELECT placement_completed AS "placementCompleted", races_played AS "racesPlayed"
+       FROM user_profiles WHERE user_id = $1 FOR UPDATE`,
+      [authenticated.user.id],
+    )
+    const profile = profileResult.rows[0]
+    if (profile.placementCompleted || profile.racesPlayed > 0) {
+      await client.query('ROLLBACK')
+      response.status(409).json({ error: 'Placement is only available before your first race.' })
+      return
+    }
+
+    await client.query(
+      `UPDATE user_profiles
+       SET elo = $2,
+           placement_completed = TRUE,
+           placement_wpm = $3,
+           placement_accuracy = $4,
+           placement_completed_at = NOW(),
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [authenticated.user.id, elo, wpm, accuracy],
+    )
+    await client.query('COMMIT')
+    placementChallenges.delete(authenticated.user.id)
+    response.json({ elo, wpm, accuracy })
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK') } catch { /* Preserve the original error. */ }
+    }
+    next(error)
+  } finally {
+    client?.release()
   }
 })
 

@@ -328,6 +328,24 @@ button:focus-visible, input:focus-visible {
 }
 .racer-identity span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 .racer-identity strong { font: 600 13px 'DM Mono', monospace; }
+.placement-invite {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(105, 79, 160, 0.24);
+  border-radius: 10px;
+  background: rgba(105, 79, 160, 0.07);
+}
+.placement-invite > div { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.placement-invite strong { font-size: 12px; }
+.placement-invite span { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.placement-invite .text-button {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid rgba(105, 79, 160, 0.3);
+  border-radius: 8px;
+}
 .race-join input {
   min-width: 0;
   flex: 1;

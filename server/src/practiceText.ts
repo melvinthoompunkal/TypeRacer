@@ -279,6 +279,7 @@ const closings: Record<
 }
 
 const recentPracticeText = new Map<PracticePackId, string>()
+const recentCompetitiveText = new Map<PracticePackId, string>()
 
 function countWords(text: string): number {
   return text.split(/\s+/).length
@@ -346,5 +347,28 @@ export function generatePracticeText(packId: PracticePackId, wordCount: number):
   }
 
   recentPracticeText.set(packId, text)
+  return text
+}
+
+function buildCompetitiveText(packId: PracticePackId) {
+  const passage = passageGenerators[packId]()
+  const sentenceCount = Math.random() < 0.5 ? 2 : 3
+  const maximumStart = passage.length - sentenceCount
+  const start = Math.floor(Math.random() * (maximumStart + 1))
+  return passage.slice(start, start + sentenceCount).join(' ')
+}
+
+export function generateCompetitiveText(packId: PracticePackId): string {
+  let text = buildCompetitiveText(packId)
+
+  for (
+    let attempt = 0;
+    attempt < 8 && text === recentCompetitiveText.get(packId);
+    attempt += 1
+  ) {
+    text = buildCompetitiveText(packId)
+  }
+
+  recentCompetitiveText.set(packId, text)
   return text
 }
