@@ -38,6 +38,7 @@ io.use(async (socket, next) => {
     socket.data.user = {
       ...user,
       carId: user.equippedCar,
+      trailId: user.equippedTrail,
     }
     next()
   } catch {

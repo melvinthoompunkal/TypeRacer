@@ -455,6 +455,9 @@ function App() {
         onCarEquipped={(carId) => setUser((current) => (
           current ? { ...current, equippedCar: carId } : current
         ))}
+        onTrailEquipped={(trailId) => setUser((current) => (
+          current ? { ...current, equippedTrail: trailId } : current
+        ))}
       />
     )
   }
@@ -601,6 +604,7 @@ function App() {
             <RaceCar
               progress={progress}
               carId={user.equippedCar}
+              trailId={user.equippedTrail}
               active={startedAt !== null && finishedAt === null}
               finished={finishedAt !== null}
             />

@@ -37,7 +37,43 @@ export const CAR_CATALOG = [
   },
 ] as const
 
+export const TRAIL_CATALOG = [
+  {
+    id: 'none',
+    name: 'No trail',
+    price: 0,
+    description: 'Keep the road clean and classic.',
+    color: '#6e7075',
+    accent: '#d8cfbf',
+  },
+  {
+    id: 'ember',
+    name: 'Ember',
+    price: 180,
+    description: 'A warm flame streak that fades behind your car.',
+    color: '#e4572e',
+    accent: '#ffc857',
+  },
+  {
+    id: 'ion',
+    name: 'Ion',
+    price: 350,
+    description: 'A bright electric wake with a cool neon glow.',
+    color: '#36d7d9',
+    accent: '#b8ffff',
+  },
+  {
+    id: 'stardust',
+    name: 'Stardust',
+    price: 550,
+    description: 'A violet stream of sparkling particles.',
+    color: '#9b72ff',
+    accent: '#f3dcff',
+  },
+] as const
+
 type CarId = (typeof CAR_CATALOG)[number]['id']
+type TrailId = (typeof TRAIL_CATALOG)[number]['id']
 
 type ProfileRow = {
   elo: number
@@ -46,6 +82,7 @@ type ProfileRow = {
   wins: number
   podiums: number
   equippedCar: CarId
+  equippedTrail: TrailId
 }
 
 export type RaceRewardInput = {
@@ -67,6 +104,12 @@ function findCar(value: unknown) {
     : undefined
 }
 
+function findTrail(value: unknown) {
+  return typeof value === 'string'
+    ? TRAIL_CATALOG.find((trail) => trail.id === value)
+    : undefined
+}
+
 async function ensureProfile(database: Pool | PoolClient, userId: string) {
   await database.query(
     `INSERT INTO user_profiles (user_id) VALUES ($1)
@@ -79,7 +122,7 @@ async function loadProfile(database: Pool | PoolClient, userId: string) {
   await ensureProfile(database, userId)
   const profileResult = await database.query<ProfileRow>(
     `SELECT elo, credits, races_played AS "racesPlayed", wins, podiums,
-            equipped_car AS "equippedCar"
+            equipped_car AS "equippedCar", equipped_trail AS "equippedTrail"
      FROM user_profiles WHERE user_id = $1`,
     [userId],
   )
@@ -88,10 +131,19 @@ async function loadProfile(database: Pool | PoolClient, userId: string) {
      WHERE user_id = $1 ORDER BY purchased_at`,
     [userId],
   )
+  const ownedTrailsResult = await database.query<{ trailId: TrailId }>(
+    `SELECT trail_id AS "trailId" FROM user_trails
+     WHERE user_id = $1 ORDER BY purchased_at`,
+    [userId],
+  )
 
   return {
     ...profileResult.rows[0],
     ownedCars: ['classic', ...ownedResult.rows.map(({ carId }) => carId)] as CarId[],
+    ownedTrails: [
+      'none',
+      ...ownedTrailsResult.rows.map(({ trailId }) => trailId),
+    ] as TrailId[],
   }
 }
 
@@ -137,14 +189,25 @@ export async function initializeProgressionDatabase() {
       wins INTEGER NOT NULL DEFAULT 0 CHECK (wins >= 0),
       podiums INTEGER NOT NULL DEFAULT 0 CHECK (podiums >= 0),
       equipped_car VARCHAR(32) NOT NULL DEFAULT 'classic',
+      equipped_trail VARCHAR(32) NOT NULL DEFAULT 'none',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE user_profiles
+      ADD COLUMN IF NOT EXISTS equipped_trail VARCHAR(32) NOT NULL DEFAULT 'none';
 
     CREATE TABLE IF NOT EXISTS user_cars (
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       car_id VARCHAR(32) NOT NULL,
       purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (user_id, car_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_trails (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      trail_id VARCHAR(32) NOT NULL,
+      purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, trail_id)
     );
 
     INSERT INTO user_profiles (user_id)
@@ -220,6 +283,7 @@ profileRouter.get('/', async (request, response, next) => {
       user: authenticated.user,
       profile,
       cars: CAR_CATALOG,
+      trails: TRAIL_CATALOG,
     })
   } catch (error) {
     next(error)
@@ -304,6 +368,91 @@ profileRouter.post('/equip', async (request, response, next) => {
     await authenticated.database.query(
       'UPDATE user_profiles SET equipped_car = $2, updated_at = NOW() WHERE user_id = $1',
       [authenticated.user.id, car.id],
+    )
+    response.json({ profile: await loadProfile(authenticated.database, authenticated.user.id) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+profileRouter.post('/purchase-trail', async (request, response, next) => {
+  let client: PoolClient | null = null
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const trail = findTrail(request.body?.trailId)
+    if (!trail || trail.id === 'none') {
+      response.status(400).json({ error: 'That trail is not available for purchase.' })
+      return
+    }
+
+    client = await authenticated.database.connect()
+    await client.query('BEGIN')
+    await ensureProfile(client, authenticated.user.id)
+    const profileResult = await client.query<{ credits: number }>(
+      'SELECT credits FROM user_profiles WHERE user_id = $1 FOR UPDATE',
+      [authenticated.user.id],
+    )
+    const ownedResult = await client.query(
+      'SELECT 1 FROM user_trails WHERE user_id = $1 AND trail_id = $2',
+      [authenticated.user.id, trail.id],
+    )
+    if (ownedResult.rowCount) {
+      await client.query('ROLLBACK')
+      response.status(409).json({ error: 'You already own that trail.' })
+      return
+    }
+    if (profileResult.rows[0].credits < trail.price) {
+      await client.query('ROLLBACK')
+      response.status(400).json({ error: `You need ${trail.price} credits for that trail.` })
+      return
+    }
+
+    await client.query(
+      'UPDATE user_profiles SET credits = credits - $2, updated_at = NOW() WHERE user_id = $1',
+      [authenticated.user.id, trail.price],
+    )
+    await client.query(
+      'INSERT INTO user_trails (user_id, trail_id) VALUES ($1, $2)',
+      [authenticated.user.id, trail.id],
+    )
+    const profile = await loadProfile(client, authenticated.user.id)
+    await client.query('COMMIT')
+    response.json({ profile })
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK') } catch { /* Preserve the original error. */ }
+    }
+    next(error)
+  } finally {
+    client?.release()
+  }
+})
+
+profileRouter.post('/equip-trail', async (request, response, next) => {
+  try {
+    const authenticated = await getRegisteredUser(request, response)
+    if (!authenticated) return
+    const trail = findTrail(request.body?.trailId)
+    if (!trail) {
+      response.status(400).json({ error: 'That trail does not exist.' })
+      return
+    }
+    if (trail.id !== 'none') {
+      const owned = await authenticated.database.query(
+        'SELECT 1 FROM user_trails WHERE user_id = $1 AND trail_id = $2',
+        [authenticated.user.id, trail.id],
+      )
+      if (!owned.rowCount) {
+        response.status(403).json({ error: 'Purchase that trail before equipping it.' })
+        return
+      }
+    }
+
+    await ensureProfile(authenticated.database, authenticated.user.id)
+    await authenticated.database.query(
+      'UPDATE user_profiles SET equipped_trail = $2, updated_at = NOW() WHERE user_id = $1',
+      [authenticated.user.id, trail.id],
     )
     response.json({ profile: await loadProfile(authenticated.database, authenticated.user.id) })
   } catch (error) {

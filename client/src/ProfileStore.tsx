@@ -14,6 +14,8 @@ type Profile = {
   podiums: number
   equippedCar: string
   ownedCars: string[]
+  equippedTrail: string
+  ownedTrails: string[]
 }
 
 type StoreCar = {
@@ -25,9 +27,12 @@ type StoreCar = {
   accent: string
 }
 
+type StoreTrail = StoreCar
+
 type ProfileResponse = {
   profile?: Profile
   cars?: StoreCar[]
+  trails?: StoreTrail[]
   error?: string
 }
 
@@ -40,6 +45,7 @@ type ProfileStoreProps = {
   onBack: () => void
   onLogout: () => void
   onCarEquipped: (carId: string) => void
+  onTrailEquipped: (trailId: string) => void
 }
 
 function rankForElo(elo: number) {
@@ -59,22 +65,26 @@ export default function ProfileStore({
   onBack,
   onLogout,
   onCarEquipped,
+  onTrailEquipped,
 }: ProfileStoreProps) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [cars, setCars] = useState<StoreCar[]>([])
+  const [trails, setTrails] = useState<StoreTrail[]>([])
   const [loading, setLoading] = useState(true)
   const [workingCar, setWorkingCar] = useState('')
+  const [workingTrail, setWorkingTrail] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
     fetch('/api/profile', { credentials: 'same-origin' })
       .then(async (response) => {
         const payload = await response.json() as ProfileResponse
-        if (!response.ok || !payload.profile || !payload.cars) {
+        if (!response.ok || !payload.profile || !payload.cars || !payload.trails) {
           throw new Error(payload.error ?? 'Could not load your profile.')
         }
         setProfile(payload.profile)
         setCars(payload.cars)
+        setTrails(payload.trails)
       })
       .catch((requestError) => {
         setError(requestError instanceof Error ? requestError.message : 'Could not load your profile.')
@@ -102,6 +112,29 @@ export default function ProfileStore({
       setError(requestError instanceof Error ? requestError.message : 'The store request failed.')
     } finally {
       setWorkingCar('')
+    }
+  }
+
+  const updateTrail = async (trailId: string, action: 'purchase-trail' | 'equip-trail') => {
+    setWorkingTrail(trailId)
+    setError('')
+    try {
+      const response = await fetch(`/api/profile/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ trailId }),
+      })
+      const payload = await response.json() as ProfileResponse
+      if (!response.ok || !payload.profile) {
+        throw new Error(payload.error ?? 'Could not update that trail.')
+      }
+      setProfile(payload.profile)
+      if (action === 'equip-trail') onTrailEquipped(trailId)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'The store request failed.')
+    } finally {
+      setWorkingTrail('')
     }
   }
 
@@ -202,6 +235,60 @@ export default function ProfileStore({
                         {busy
                           ? 'Purchasing…'
                           : profile.credits < car.price ? 'Not enough credits' : `Buy for ${car.price}`}
+                      </button>
+                    )}
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="trail-store-section">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Trail effects</span>
+                <h2>Leave your mark</h2>
+              </div>
+              <span>{profile.ownedTrails.length}/{trails.length} owned</span>
+            </div>
+
+            <div className="car-store-grid">
+              {trails.map((trail) => {
+                const owned = profile.ownedTrails.includes(trail.id)
+                const equipped = profile.equippedTrail === trail.id
+                const busy = workingTrail === trail.id
+                return (
+                  <article className={equipped ? 'store-car equipped' : 'store-car'} key={trail.id}>
+                    <div className="store-car-preview store-trail-preview">
+                      <div className="preview-road" />
+                      <RaceCar progress={68} trailId={trail.id} />
+                    </div>
+                    <div className="store-car-copy">
+                      <div>
+                        <h3>{trail.name}</h3>
+                        <span>{trail.price === 0 ? 'Included' : `${trail.price} credits`}</span>
+                      </div>
+                      <p>{trail.description}</p>
+                    </div>
+                    {equipped ? (
+                      <button className="secondary-button" disabled>Equipped</button>
+                    ) : owned ? (
+                      <button
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() => updateTrail(trail.id, 'equip-trail')}
+                      >
+                        {busy ? 'Equipping…' : 'Equip'}
+                      </button>
+                    ) : (
+                      <button
+                        className="primary-button"
+                        disabled={busy || profile.credits < trail.price}
+                        onClick={() => updateTrail(trail.id, 'purchase-trail')}
+                      >
+                        {busy
+                          ? 'Purchasing…'
+                          : profile.credits < trail.price ? 'Not enough credits' : `Buy for ${trail.price}`}
                       </button>
                     )}
                   </article>

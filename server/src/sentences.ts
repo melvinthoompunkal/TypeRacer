@@ -11,6 +11,7 @@ export const PACK_LABELS = {
 export type PackId = keyof typeof PACK_LABELS
 
 const MAX_SENTENCE_LENGTH = 200
+const COMPETITIVE_WORD_COUNT = 60
 
 const sentencePacks = Object.fromEntries(
   Object.entries(sentenceData).map(([packId, sentences]) => [
@@ -48,6 +49,6 @@ export function getRandomRaceSentence() {
   return {
     packId,
     packLabel: PACK_LABELS[packId],
-    sentence: getRandomSentence(packId),
+    sentence: generatePracticeText(packId, COMPETITIVE_WORD_COUNT),
   }
 }

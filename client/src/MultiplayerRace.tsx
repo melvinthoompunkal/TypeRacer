@@ -41,6 +41,7 @@ type RacerState = {
   id: string
   name: string
   carId: string
+  trailId: string
   progress: number
   wpm: number
   accuracy: number
@@ -555,6 +556,7 @@ export default function MultiplayerRace({
                   progress={racer.progress}
                   color={racerColor(index)}
                   carId={racer.carId}
+                  trailId={racer.trailId}
                   active={phase === 'racing' && racer.connected && !racer.finished}
                   finished={racer.finished}
                 />

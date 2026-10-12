@@ -121,6 +121,12 @@ const CAR_SKINS: Record<string, { color: string; accent: string }> = {
   volt: { color: '#78a83b', accent: '#dfff72' },
   phantom: { color: '#45356f', accent: '#bd9cff' },
 }
+const TRAIL_STYLES: Record<string, { color: string; accent: string }> = {
+  none: { color: 'transparent', accent: 'transparent' },
+  ember: { color: '#e4572e', accent: '#ffc857' },
+  ion: { color: '#36d7d9', accent: '#b8ffff' },
+  stardust: { color: '#9b72ff', accent: '#f3dcff' },
+}
 
 export function racerColor(index: number) {
   return CAR_COLORS[index % CAR_COLORS.length]
@@ -130,28 +136,34 @@ export function RaceCar({
   progress,
   color = CAR_COLORS[0],
   carId = 'classic',
+  trailId = 'none',
   active = false,
   finished = false,
 }: {
   progress: number
   color?: string
   carId?: string
+  trailId?: string
   active?: boolean
   finished?: boolean
 }) {
   const skin = CAR_SKINS[carId] ?? CAR_SKINS.classic
+  const trail = TRAIL_STYLES[trailId] ?? TRAIL_STYLES.none
   const carColor = carId === 'classic' ? color : skin.color
 
   return (
     <span
-      className={`race-car car-${carId}${active ? ' active' : ''}${finished ? ' finished' : ''}`}
+      className={`race-car car-${carId} trail-${trailId}${active ? ' active' : ''}${finished ? ' finished' : ''}`}
       style={{
         left: `${Math.min(Math.max(progress, 0), 96)}%`,
         '--car-color': carColor,
         '--car-accent': skin.accent,
+        '--trail-color': trail.color,
+        '--trail-accent': trail.accent,
       } as CSSProperties}
       aria-hidden="true"
     >
+      <span className="car-trail"><i /><i /><i /><i /></span>
       <svg viewBox="0 0 64 32" focusable="false">
         <path className="car-shadow" d="M9 25h46v3H9z" />
         <path className="car-body" d="M5 17h10l8-9h19l9 9h7c2 0 4 2 4 4v3H3v-3c0-2 1-4 2-4Z" />

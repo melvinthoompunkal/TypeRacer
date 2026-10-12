@@ -19,6 +19,7 @@ type RacePlayer = {
   isGuest: boolean
   isBot: boolean
   carId: string
+  trailId: string
   targetWpm: number | null
   typedText: string
   correctCharacters: number
@@ -146,6 +147,7 @@ export function registerRaceHandlers(io: Server) {
       id: player.id,
       name: player.name,
       carId: player.carId,
+      trailId: player.trailId,
       progress: room.sentence.length === 0
         ? 0
         : Math.round((player.correctCharacters / room.sentence.length) * 10_000) / 100,
@@ -286,6 +288,7 @@ export function registerRaceHandlers(io: Server) {
     userId: string,
     isGuest: boolean,
     carId: string,
+    trailId: string,
   ) {
     const player: RacePlayer = {
       id: socket.id,
@@ -294,6 +297,7 @@ export function registerRaceHandlers(io: Server) {
       isGuest,
       isBot: false,
       carId,
+      trailId,
       targetWpm: null,
       typedText: '',
       correctCharacters: 0,
@@ -325,6 +329,7 @@ export function registerRaceHandlers(io: Server) {
       isGuest: false,
       isBot: true,
       carId: 'classic',
+      trailId: 'none',
       targetWpm: profile.targetWpm,
       typedText: '',
       correctCharacters: 0,
@@ -600,6 +605,7 @@ export function registerRaceHandlers(io: Server) {
     const authenticatedUserId = String(socket.data.user?.id ?? '')
     const authenticatedIsGuest = Boolean(socket.data.user?.isGuest)
     const equippedCar = String(socket.data.user?.carId ?? 'classic')
+    const equippedTrail = String(socket.data.user?.trailId ?? 'none')
 
     socket.on(
       'quick:join',
@@ -622,6 +628,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedUserId,
           authenticatedIsGuest,
           equippedCar,
+          equippedTrail,
         )
 
         acknowledgeJoin(acknowledge, player, room)
@@ -647,6 +654,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedUserId,
           authenticatedIsGuest,
           equippedCar,
+          equippedTrail,
         )
         room.hostId = player.id
 
@@ -682,6 +690,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedUserId,
           authenticatedIsGuest,
           equippedCar,
+          equippedTrail,
         )
         acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)

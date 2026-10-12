@@ -43,7 +43,7 @@ Quick matches wait 3–5 seconds for human racers, fill open slots with 60–90 
 
 ## Account progression
 
-Registered racers begin at 1000 ELO. Multiplayer placement changes ELO on a normalized curve and also awards spendable Race Credits; ELO itself is never spent, so cosmetics cannot lower a competitive rank. The profile and store screen tracks races, wins, podiums, and win rate, and lets players purchase and equip car skins. Guests can race normally but do not receive persistent progression or store currency.
+Registered racers begin at 1000 ELO. Multiplayer placement changes ELO on a normalized curve and also awards spendable Race Credits; ELO itself is never spent, so cosmetics cannot lower a competitive rank. The profile and store screen tracks races, wins, podiums, and win rate, and lets players purchase and equip car skins and animated trails. Guests can race normally but do not receive persistent progression or store currency. Competitive races use coherent 60-word passages for longer, more meaningful matches.
 
 ## Configuration
 

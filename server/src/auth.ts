@@ -20,6 +20,7 @@ export type AuthUser = {
   username: string
   isGuest: boolean
   equippedCar: string
+  equippedTrail: string
 }
 
 type UserRow = AuthUser & {
@@ -231,7 +232,8 @@ export async function getAuthenticatedUser(cookieHeader: string | undefined): Pr
 
   const result = await pool.query<AuthUser>(
     `SELECT users.id, users.display_name AS username, users.is_guest AS "isGuest",
-            COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar"
+            COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar",
+            COALESCE(user_profiles.equipped_trail, 'none') AS "equippedTrail"
      FROM auth_sessions
      JOIN users ON users.id = auth_sessions.user_id
      LEFT JOIN user_profiles ON user_profiles.user_id = users.id
@@ -278,6 +280,7 @@ authRouter.post('/register', async (request, response, next) => {
       username,
       isGuest: false,
       equippedCar: 'classic',
+      equippedTrail: 'none',
     }
     await client.query('BEGIN')
     await client.query(
@@ -322,7 +325,8 @@ authRouter.post('/login', async (request, response, next) => {
     const result = await database.query<UserRow>(
       `SELECT users.id, users.display_name AS username, users.password_hash,
               users.is_guest AS "isGuest",
-              COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar"
+              COALESCE(user_profiles.equipped_car, 'classic') AS "equippedCar",
+              COALESCE(user_profiles.equipped_trail, 'none') AS "equippedTrail"
        FROM users
        LEFT JOIN user_profiles ON user_profiles.user_id = users.id
        WHERE users.username = $1 AND users.is_guest = FALSE`,
@@ -349,6 +353,7 @@ authRouter.post('/login', async (request, response, next) => {
           username: row.username,
           isGuest: row.isGuest,
           equippedCar: row.equippedCar,
+          equippedTrail: row.equippedTrail,
         },
         token,
       )
@@ -379,6 +384,7 @@ authRouter.post('/guest', async (request, response, next) => {
       username: displayName,
       isGuest: true,
       equippedCar: 'classic',
+      equippedTrail: 'none',
     }
     const internalUsername = `guest_${randomBytes(4).toString('hex')}`
 

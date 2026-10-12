@@ -6,6 +6,7 @@ export type AuthUser = {
   username: string
   isGuest: boolean
   equippedCar: string
+  equippedTrail: string
 }
 
 type AuthScreenProps = {
