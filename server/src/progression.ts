@@ -98,6 +98,17 @@ export type RaceReward = {
   credits: number
 }
 
+export async function getPlayerSkillRating(userId: string) {
+  const database = getDatabasePool()
+  if (!database) return 1_000
+
+  const result = await database.query<{ elo: number }>(
+    'SELECT elo FROM user_profiles WHERE user_id = $1',
+    [userId],
+  )
+  return result.rows[0]?.elo ?? 1_000
+}
+
 function findCar(value: unknown) {
   return typeof value === 'string'
     ? CAR_CATALOG.find((car) => car.id === value)

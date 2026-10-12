@@ -7,6 +7,7 @@ import { Server } from 'socket.io'
 import { authRouter, getAuthenticatedUser, initializeAuthDatabase } from './auth.js'
 import { config } from './config.js'
 import {
+  getPlayerSkillRating,
   initializeProgressionDatabase,
   profileRouter,
 } from './progression.js'
@@ -35,8 +36,10 @@ io.use(async (socket, next) => {
       next(new Error('Authentication required.'))
       return
     }
+    const skillRating = await getPlayerSkillRating(user.id)
     socket.data.user = {
       ...user,
+      skillRating,
       carId: user.equippedCar,
       trailId: user.equippedTrail,
     }

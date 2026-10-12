@@ -39,7 +39,7 @@ The Docker image builds both workspaces, contains only production dependencies a
 
 The client uses relative `/api` and Socket.IO URLs in production, so changing the Railway domain requires no code changes.
 
-Quick matches wait 3–5 seconds for human racers, fill open slots with 60–90 WPM server-simulated bots, run a synchronized countdown, and stream authoritative progress, WPM, accuracy, and finish order. Private rooms use four-letter codes and host-controlled starts. Rematches keep the human group together and reroll every bot.
+Quick matches wait 3–5 seconds for human racers, then fill open slots with server-simulated bots scaled to the median human ELO in the lobby. A new 1,000-ELO racer gets beginner-friendly targets near 35, 42, and 49 WPM; higher ratings progressively raise the bot speeds up to a 120 WPM ceiling. Races use a synchronized countdown and stream authoritative progress, WPM, accuracy, and finish order. Private rooms use four-letter codes and host-controlled starts. Rematches keep the human group together and recalculate every bot from the returning lobby's ELO.
 
 ## Account progression
 

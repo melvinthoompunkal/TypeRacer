@@ -1,5 +1,9 @@
 import type { Server, Socket } from 'socket.io'
-import { createBotProfile, startBotTyping } from './botSimulator.js'
+import {
+  createBotProfile,
+  getBotTargetWpms,
+  startBotTyping,
+} from './botSimulator.js'
 import { applyRaceRewards } from './progression.js'
 import { getRandomRaceSentence } from './sentences.js'
 
@@ -18,6 +22,7 @@ type RacePlayer = {
   userId: string | null
   isGuest: boolean
   isBot: boolean
+  skillRating: number
   carId: string
   trailId: string
   targetWpm: number | null
@@ -287,6 +292,7 @@ export function registerRaceHandlers(io: Server) {
     requestedName: string,
     userId: string,
     isGuest: boolean,
+    skillRating: number,
     carId: string,
     trailId: string,
   ) {
@@ -296,6 +302,7 @@ export function registerRaceHandlers(io: Server) {
       userId,
       isGuest,
       isBot: false,
+      skillRating,
       carId,
       trailId,
       targetWpm: null,
@@ -316,18 +323,19 @@ export function registerRaceHandlers(io: Server) {
     return player
   }
 
-  function addBot(room: RaceRoom) {
+  function addBot(room: RaceRoom, targetWpm: number) {
     botSequence += 1
     const usedNames = new Set(
       [...room.players.values()].map((player) => player.name.toLowerCase()),
     )
-    const profile = createBotProfile(usedNames)
+    const profile = createBotProfile(usedNames, targetWpm)
     const bot: RacePlayer = {
       id: `bot-${roomSequence}-${botSequence}`,
       name: profile.name,
       userId: null,
       isGuest: false,
       isBot: true,
+      skillRating: 0,
       carId: 'classic',
       trailId: 'none',
       targetWpm: profile.targetWpm,
@@ -435,6 +443,11 @@ export function registerRaceHandlers(io: Server) {
       console.error('Could not apply race rewards:', error)
     }
 
+    orderedPlayers.forEach((player) => {
+      const reward = player.userId ? rewards.get(player.userId) : undefined
+      if (reward) player.skillRating = reward.elo
+    })
+
     io.to(room.id).emit('race:results', {
       results: orderedPlayers.map((player) => {
         const reward = player.userId ? rewards.get(player.userId) : undefined
@@ -524,7 +537,12 @@ export function registerRaceHandlers(io: Server) {
 
   function fillBotsAndStart(room: RaceRoom) {
     if (room.status !== 'waiting' || humanPlayers(room, true).length === 0) return
-    while (room.players.size < MAX_PLAYERS) addBot(room)
+    const humans = humanPlayers(room, true)
+    const botTargets = getBotTargetWpms(
+      humans.map((player) => player.skillRating),
+      MAX_PLAYERS - room.players.size,
+    )
+    botTargets.forEach((targetWpm) => addBot(room, targetWpm))
     startCountdown(room)
   }
 
@@ -604,6 +622,10 @@ export function registerRaceHandlers(io: Server) {
     const authenticatedName = String(socket.data.user?.username ?? '')
     const authenticatedUserId = String(socket.data.user?.id ?? '')
     const authenticatedIsGuest = Boolean(socket.data.user?.isGuest)
+    const rawSkillRating = Number(socket.data.user?.skillRating)
+    const authenticatedSkillRating = Number.isFinite(rawSkillRating)
+      ? Math.max(0, Math.round(rawSkillRating))
+      : 1_000
     const equippedCar = String(socket.data.user?.carId ?? 'classic')
     const equippedTrail = String(socket.data.user?.trailId ?? 'none')
 
@@ -627,6 +649,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedName,
           authenticatedUserId,
           authenticatedIsGuest,
+          authenticatedSkillRating,
           equippedCar,
           equippedTrail,
         )
@@ -653,6 +676,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedName,
           authenticatedUserId,
           authenticatedIsGuest,
+          authenticatedSkillRating,
           equippedCar,
           equippedTrail,
         )
@@ -689,6 +713,7 @@ export function registerRaceHandlers(io: Server) {
           authenticatedName,
           authenticatedUserId,
           authenticatedIsGuest,
+          authenticatedSkillRating,
           equippedCar,
           equippedTrail,
         )
