@@ -100,6 +100,14 @@ button:focus-visible, input:focus-visible {
 .text-button:hover { color: var(--text); }
 
 .nav-actions { display: flex; align-items: center; gap: 18px; }
+.account-name {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--muted);
+  font: 600 12px 'DM Mono', monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sound-button, .theme-button {
   display: inline-flex;
   align-items: center;
@@ -154,6 +162,60 @@ button:focus-visible, input:focus-visible {
   border: 1px solid rgba(166, 61, 64, 0.25);
   border-radius: 12px;
 }
+
+.auth-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.7fr);
+  gap: clamp(50px, 9vw, 120px);
+  align-items: center;
+  min-height: calc(100vh - 84px);
+  padding: 60px 0 90px;
+}
+
+.auth-intro h1 {
+  margin: 0;
+  font-size: clamp(48px, 6.5vw, 78px);
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+.auth-intro h1 em { color: var(--lime); font-style: normal; }
+.auth-intro p { max-width: 520px; margin-top: 25px; color: var(--muted); font-size: 17px; line-height: 1.7; }
+
+.auth-card {
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgba(34, 36, 40, 0.09);
+}
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 5px; border-radius: 12px; background: var(--surface-light); }
+.auth-tabs button { padding: 10px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 800; cursor: pointer; }
+.auth-tabs button.selected { color: #f7f3eb; background: var(--purple); }
+.auth-heading { padding: 32px 0 24px; }
+.auth-heading h2 { margin: 0; font-size: 30px; letter-spacing: -0.04em; }
+.auth-heading p { margin: 8px 0 0; color: var(--muted); }
+.auth-card .error-banner { margin-bottom: 18px; }
+.auth-form { display: grid; gap: 18px; }
+.auth-form label { display: grid; gap: 7px; }
+.auth-form label > span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.auth-form label > small { color: var(--muted); font-size: 10px; }
+.auth-form input {
+  width: 100%;
+  padding: 13px 14px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  background: #fffdf8;
+}
+.auth-form input:focus { border-color: var(--purple); }
+.auth-submit { width: 100%; margin-top: 5px; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 14px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.account-link { display: block; width: 100%; padding: 8px; border: 0; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; text-align: center; cursor: pointer; }
+.account-link:hover { color: var(--text); }
+.auth-loading { display: grid; place-content: center; justify-items: center; gap: 14px; }
+.auth-loading p { color: var(--muted); }
 
 .mode-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; }
 
@@ -215,6 +277,18 @@ button:focus-visible, input:focus-visible {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+.racer-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 43px;
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(250, 247, 240, 0.55);
+}
+.racer-identity span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.racer-identity strong { font: 600 13px 'DM Mono', monospace; }
 .race-join input {
   min-width: 0;
   flex: 1;
@@ -573,6 +647,7 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 }
 
 :root[data-theme='dark'] .race-join input,
+:root[data-theme='dark'] .auth-form input,
 :root[data-theme='dark'] .option-button,
 :root[data-theme='dark'] .secondary-button,
 :root[data-theme='dark'] .room-code strong,
@@ -584,6 +659,8 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 :root[data-theme='dark'] .race-join input {
   background: #181a1d;
 }
+:root[data-theme='dark'] .auth-form input { background: #181a1d; }
+:root[data-theme='dark'] .racer-identity { background: rgba(29, 32, 35, 0.72); }
 
 :root[data-theme='dark'] .private-join .text-button:hover,
 :root[data-theme='dark'] .room-code,
@@ -593,6 +670,7 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
 }
 
 :root[data-theme='dark'] .setup-card,
+:root[data-theme='dark'] .auth-card,
 :root[data-theme='dark'] .race-card,
 :root[data-theme='dark'] .racer-tracks {
   background: rgba(29, 32, 35, 0.94);
@@ -651,6 +729,10 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
   .topbar { height: 68px; }
   .hero { padding: 68px 0 45px; }
   .hero p { font-size: 15px; }
+  .auth-layout { grid-template-columns: 1fr; gap: 40px; padding: 52px 0 70px; }
+  .auth-intro h1 { font-size: clamp(44px, 13vw, 62px); }
+  .auth-intro p { font-size: 15px; }
+  .auth-card { padding: 23px; }
   .mode-grid, .pack-grid { grid-template-columns: 1fr; }
   .mode-card { min-height: 245px; padding: 25px; }
   .mode-card.race-mode { min-height: 430px; }
@@ -690,6 +772,7 @@ footer { padding: 26px 0 38px; color: #7d7c79; border-top: 1px solid rgba(30, 31
   .nav-actions { gap: 10px; }
   .sound-button > span:last-child, .theme-button > span:last-child { display: none; }
   .sound-button, .theme-button { width: 34px; height: 34px; justify-content: center; padding: 0; }
+  .account-name { display: none; }
   .length-options { grid-template-columns: repeat(2, 1fr); }
   .race-pack { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .racer-track-row { grid-template-columns: 72px 1fr 30px; gap: 8px; padding: 0 4px; }

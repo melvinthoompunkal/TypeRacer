@@ -24,10 +24,14 @@ Health check: `GET /health` returns `ok`.
 
 ## Railway
 
+Deploy this repository as one TypeRacer application service plus one PostgreSQL service. The `client` and `server` folders are npm workspaces built together by the root `Dockerfile`; they should not be deployed as separate Railway application services.
+
 1. Push this folder to a Git repository and create a Railway project from it.
 2. Add a service from the repository. Railway detects the root `Dockerfile` and builds the production image automatically.
 3. Under **Settings -> Networking**, generate a public domain.
-4. Set the service health-check path to `/health`. No variables are required because Railway supplies `PORT`.
+4. Add a PostgreSQL database to the same Railway project.
+5. On the TypeRacer service, add a `DATABASE_URL` reference variable that points to the PostgreSQL service's `DATABASE_URL` (for example `${{Postgres.DATABASE_URL}}`; use the actual database service name).
+6. Set the service health-check path to `/health`, then deploy. The server creates the account and session tables automatically.
 
 Keep the service at **one replica**. Matchmaking rooms and Socket.IO session state are held in this process's memory, so multiple replicas require a shared room store and a Socket.IO-compatible cross-replica adapter first.
 
@@ -45,5 +49,9 @@ Copy `.env.example` values into your shell or hosting provider when overrides ar
 - `HOST`: bind address; defaults to `0.0.0.0` for containers and Railway.
 - `CLIENT_ORIGINS`: comma-separated origins if the client is hosted separately later.
 - `DEV_SERVER_URL`: Vite's local proxy target; defaults to `http://localhost:3001`.
+- `DATABASE_URL`: PostgreSQL connection string; required for registration, login, and multiplayer.
+- `DATABASE_SSL`: set to `true` only if the PostgreSQL provider requires TLS. Railway private networking normally uses `false`.
+
+Passwords are salted and hashed with `scrypt`; plaintext passwords are never stored. Players can also enter a racer name and immediately continue as a guest without a password. Login and guest sessions use random tokens in `HttpOnly`, `SameSite=Lax` cookies, while PostgreSQL stores only a SHA-256 hash of each token. Multiplayer connections are authenticated on the server and use the session's display name instead of trusting a racer name sent during room entry.
 
 Game rooms remain in server memory as specified. The upcoming room manager will keep storage behind a dedicated module, allowing Redis or another provider to replace it later without changing HTTP routes or client events.

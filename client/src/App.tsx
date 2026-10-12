@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react'
+import AuthScreen, { type AuthUser } from './AuthScreen'
 import MultiplayerRace, { type MultiplayerEntry } from './MultiplayerRace'
 import {
   playGameSound,
@@ -72,9 +73,9 @@ function calculateAccuracy(correctKeystrokes: number, totalKeystrokes: number) {
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
-  const [playerName, setPlayerName] = useState(
-    () => window.localStorage.getItem('type-racer-name') ?? '',
-  )
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [roomCode, setRoomCode] = useState('')
   const [multiplayerEntry, setMultiplayerEntry] = useState<MultiplayerEntry>({ kind: 'quick' })
   const [packs, setPacks] = useState<Pack[]>([])
@@ -112,6 +113,23 @@ function App() {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem('type-racer-theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then(async (response) => {
+        const payload = await response.json() as { user?: AuthUser; error?: string }
+        if (response.status === 401) return null
+        if (!response.ok || !payload.user) {
+          throw new Error(payload.error ?? 'Could not check your login.')
+        }
+        return payload.user
+      })
+      .then((authenticatedUser) => setUser(authenticatedUser))
+      .catch((requestError) => {
+        setAuthError(requestError instanceof Error ? requestError.message : 'Could not check your login.')
+      })
+      .finally(() => setAuthChecked(true))
+  }, [])
 
   useEffect(() => {
     fetch('/api/packs')
@@ -354,10 +372,24 @@ function App() {
     setError('')
   }
 
+  const logout = async () => {
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      if (!response.ok) throw new Error('Could not log out.')
+      returnHome()
+      setUser(null)
+    } catch {
+      setError('Could not log out. Please try again.')
+    }
+  }
+
   const startMultiplayer = (entry: MultiplayerEntry) => {
-    const name = playerName.trim()
+    const name = user?.username ?? ''
     if (!name) {
-      setError('Enter a racer name before joining a race.')
+      setError('Log in before joining a race.')
       return
     }
     if (entry.kind === 'join' && entry.roomCode?.length !== 4) {
@@ -365,17 +397,40 @@ function App() {
       return
     }
 
-    window.localStorage.setItem('type-racer-name', name)
-    setPlayerName(name)
     setMultiplayerEntry(entry)
     setError('')
     setScreen('multiplayer')
   }
 
+  if (!authChecked) {
+    return (
+      <main className="app-shell auth-shell auth-loading">
+        <div className="brand">
+          <span className="brand-mark">T</span>
+          <span>TypeRacer</span>
+        </div>
+        <p>Checking your session…</p>
+      </main>
+    )
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        initialError={authError}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onAuthenticated={(authenticatedUser) => {
+          setUser(authenticatedUser)
+          setAuthError('')
+        }}
+      />
+    )
+  }
+
   if (screen === 'multiplayer') {
     return (
       <MultiplayerRace
-        playerName={playerName}
         entry={multiplayerEntry}
         soundEnabled={soundEnabled}
         onToggleSound={toggleSound}
@@ -400,6 +455,8 @@ function App() {
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
             <ThemeButton theme={theme} onToggle={toggleTheme} />
+            <span className="account-name">@{user.username}</span>
+            <button className="text-button" onClick={logout}>Log out</button>
             <button className="text-button" onClick={returnHome}>Back home</button>
           </div>
         </nav>
@@ -486,6 +543,8 @@ function App() {
           <div className="nav-actions">
             <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
             <ThemeButton theme={theme} onToggle={toggleTheme} />
+            <span className="account-name">@{user.username}</span>
+            <button className="text-button" onClick={logout}>Log out</button>
             <button className="text-button" onClick={returnHome}>Exit practice</button>
           </div>
         </nav>
@@ -631,6 +690,8 @@ function App() {
         <div className="nav-actions">
           <SoundButton enabled={soundEnabled} onToggle={toggleSound} />
           <ThemeButton theme={theme} onToggle={toggleTheme} />
+          <span className="account-name">@{user.username}</span>
+          <button className="text-button" onClick={logout}>Log out</button>
         </div>
       </nav>
 
@@ -663,19 +724,10 @@ function App() {
             <p>Race a full grid instantly, or open a private room for friends.</p>
           </div>
           <div className="race-join">
-            <label className="racer-name-field">
-              <span>Racer name</span>
-              <input
-                className="racer-name-input"
-                value={playerName}
-                onChange={(event) => setPlayerName(event.target.value.slice(0, 18))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') startMultiplayer({ kind: 'quick' })
-                }}
-                placeholder="Enter your name"
-                maxLength={18}
-              />
-            </label>
+            <div className="racer-identity">
+              <span>Racing as</span>
+              <strong>@{user.username}</strong>
+            </div>
             <div className="race-buttons">
               <button className="primary-button" onClick={() => startMultiplayer({ kind: 'quick' })}>
                 Quick match

@@ -48,7 +48,6 @@ type RaceRoom = {
 }
 
 type JoinPayload = {
-  name?: unknown
   code?: unknown
 }
 
@@ -98,11 +97,6 @@ function getNextWordStart(target: string, currentIndex: number) {
   while (nextIndex < target.length && target[nextIndex] !== ' ') nextIndex += 1
   while (nextIndex < target.length && target[nextIndex] === ' ') nextIndex += 1
   return nextIndex
-}
-
-function sanitizeName(value: unknown) {
-  if (typeof value !== 'string') return ''
-  return value.trim().replace(/\s+/g, ' ').slice(0, 18)
 }
 
 function sanitizeCode(value: unknown) {
@@ -543,12 +537,13 @@ export function registerRaceHandlers(io: Server) {
   }
 
   io.on('connection', (socket) => {
+    const authenticatedName = String(socket.data.user?.username ?? '')
+
     socket.on(
       'quick:join',
-      (payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
-        const requestedName = sanitizeName(payload?.name)
-        if (!requestedName) {
-          acknowledge?.({ ok: false, error: 'Enter a racer name first.' })
+      (_payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
+        if (!authenticatedName) {
+          acknowledge?.({ ok: false, error: 'Sign in before joining a race.' })
           return
         }
 
@@ -558,7 +553,7 @@ export function registerRaceHandlers(io: Server) {
             && candidate.status === 'waiting'
             && candidate.players.size < MAX_PLAYERS,
         ) ?? createRoom('quick')
-        const player = addHuman(socket, room, requestedName)
+        const player = addHuman(socket, room, authenticatedName)
 
         acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)
@@ -568,16 +563,15 @@ export function registerRaceHandlers(io: Server) {
 
     socket.on(
       'private:create',
-      (payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
-        const requestedName = sanitizeName(payload?.name)
-        if (!requestedName) {
-          acknowledge?.({ ok: false, error: 'Enter a racer name first.' })
+      (_payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
+        if (!authenticatedName) {
+          acknowledge?.({ ok: false, error: 'Sign in before joining a race.' })
           return
         }
 
         leaveRoom(socket)
         const room = createRoom('private', generateRoomCode())
-        const player = addHuman(socket, room, requestedName)
+        const player = addHuman(socket, room, authenticatedName)
         room.hostId = player.id
 
         acknowledgeJoin(acknowledge, player, room)
@@ -588,12 +582,11 @@ export function registerRaceHandlers(io: Server) {
     socket.on(
       'private:join',
       (payload: JoinPayload, acknowledge?: (result: JoinResult) => void) => {
-        const requestedName = sanitizeName(payload?.name)
         const code = sanitizeCode(payload?.code)
         const room = rooms.get(`private-${code}`)
 
-        if (!requestedName) {
-          acknowledge?.({ ok: false, error: 'Enter a racer name first.' })
+        if (!authenticatedName) {
+          acknowledge?.({ ok: false, error: 'Sign in before joining a race.' })
           return
         }
         if (code.length !== 4 || !room) {
@@ -606,7 +599,7 @@ export function registerRaceHandlers(io: Server) {
         }
 
         leaveRoom(socket)
-        const player = addHuman(socket, room, requestedName)
+        const player = addHuman(socket, room, authenticatedName)
         acknowledgeJoin(acknowledge, player, room)
         emitLobby(room)
       },

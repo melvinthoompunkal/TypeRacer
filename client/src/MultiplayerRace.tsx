@@ -80,15 +80,15 @@ type ServerToClientEvents = {
 
 type ClientToServerEvents = {
   'quick:join': (
-    payload: { name: string },
+    payload: Record<string, never>,
     acknowledge: (result: JoinResult) => void,
   ) => void
   'private:create': (
-    payload: { name: string },
+    payload: Record<string, never>,
     acknowledge: (result: JoinResult) => void,
   ) => void
   'private:join': (
-    payload: { name: string; code: string },
+    payload: { code: string },
     acknowledge: (result: JoinResult) => void,
   ) => void
   'private:start': (acknowledge: (result: ActionResult) => void) => void
@@ -99,7 +99,6 @@ type ClientToServerEvents = {
 }
 
 type MultiplayerRaceProps = {
-  playerName: string
   entry: MultiplayerEntry
   soundEnabled: boolean
   onToggleSound: () => void
@@ -118,7 +117,6 @@ function ordinal(value: number) {
 }
 
 export default function MultiplayerRace({
-  playerName,
   entry,
   soundEnabled,
   onToggleSound,
@@ -164,15 +162,15 @@ export default function MultiplayerRace({
 
     const handleConnect = () => {
       if (entry.kind === 'create') {
-        socket.emit('private:create', { name: playerName }, acknowledgeJoin)
+        socket.emit('private:create', {}, acknowledgeJoin)
       } else if (entry.kind === 'join') {
         socket.emit(
           'private:join',
-          { name: playerName, code: entry.roomCode ?? '' },
+          { code: entry.roomCode ?? '' },
           acknowledgeJoin,
         )
       } else {
-        socket.emit('quick:join', { name: playerName }, acknowledgeJoin)
+        socket.emit('quick:join', {}, acknowledgeJoin)
       }
     }
 
@@ -219,7 +217,11 @@ export default function MultiplayerRace({
     }
 
     socket.on('connect', handleConnect)
-    socket.on('connect_error', () => setError('Could not connect to the race server.'))
+    socket.on('connect_error', (connectError) => setError(
+      connectError.message === 'Authentication required.'
+        ? 'Your login expired. Return home and log in again.'
+        : 'Could not connect to the race server.',
+    ))
     socket.on('lobby:update', handleLobby)
     socket.on('race:countdown', handleCountdown)
     socket.on('race:started', handleStarted)
@@ -233,7 +235,7 @@ export default function MultiplayerRace({
       socket.removeAllListeners()
       socket.disconnect()
     }
-  }, [entry, playerName, socket])
+  }, [entry, socket])
 
   const self = racers.find((racer) => racer.id === playerId)
   const correctCount = useMemo(() => {

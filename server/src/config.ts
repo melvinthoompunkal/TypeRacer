@@ -19,4 +19,7 @@ export const config = {
   host: process.env.HOST ?? '0.0.0.0',
   port: parsePort(process.env.PORT),
   clientOrigins: parseOrigins(process.env.CLIENT_ORIGINS),
+  databaseUrl: process.env.DATABASE_URL,
+  databaseSsl: process.env.DATABASE_SSL === 'true',
+  isProduction: process.env.NODE_ENV === 'production',
 }

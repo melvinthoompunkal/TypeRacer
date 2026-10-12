@@ -1,9 +1,10 @@
-import express from 'express'
+import express, { type NextFunction, type Request, type Response } from 'express'
 import { existsSync } from 'node:fs'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'socket.io'
+import { authRouter, getAuthenticatedUser, initializeAuthDatabase } from './auth.js'
 import { config } from './config.js'
 import { registerRaceHandlers } from './raceManager.js'
 import {
@@ -23,11 +24,26 @@ const io = new Server(httpServer, {
   },
 })
 
+io.use(async (socket, next) => {
+  try {
+    const user = await getAuthenticatedUser(socket.handshake.headers.cookie)
+    if (!user) {
+      next(new Error('Authentication required.'))
+      return
+    }
+    socket.data.user = user
+    next()
+  } catch {
+    next(new Error('Could not verify your login.'))
+  }
+})
+
 registerRaceHandlers(io)
 
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 app.use(express.json())
+app.use('/api/auth', authRouter)
 
 app.get('/health', (_request, response) => {
   response.type('text/plain').send('ok')
@@ -67,6 +83,15 @@ if (existsSync(path.join(clientDirectory, 'index.html'))) {
   })
 }
 
+app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
+  if (response.headersSent) {
+    next(error)
+    return
+  }
+  console.error('TypeRacer request failed:', error)
+  response.status(500).json({ error: 'Something went wrong on the server.' })
+})
+
 httpServer.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
     console.error(
@@ -80,6 +105,13 @@ httpServer.on('error', (error: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
-httpServer.listen(config.port, config.host, () => {
-  console.log(`TypeRacer server listening on ${config.host}:${config.port}`)
-})
+initializeAuthDatabase()
+  .then(() => {
+    httpServer.listen(config.port, config.host, () => {
+      console.log(`TypeRacer server listening on ${config.host}:${config.port}`)
+    })
+  })
+  .catch((error) => {
+    console.error('Could not initialize the authentication database:', error)
+    process.exit(1)
+  })
