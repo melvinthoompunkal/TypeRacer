@@ -39,6 +39,8 @@ The Docker image builds both workspaces, contains only production dependencies a
 
 The client uses relative `/api` and Socket.IO URLs in production, so changing the Railway domain requires no code changes.
 
+Typing has lightweight key-click and backspace sounds in both practice and multiplayer. The persistent Sound on/off control disables these effects along with countdown, error, finish, and victory cues.
+
 Quick matches group human racers within a 150-point ELO window, wait 3–5 seconds, then fill open slots with server-simulated bots scaled to the median human rating. A new 1,000-ELO racer gets beginner-friendly opponents near 36, 42, and 48 displayed WPM, while a 1,600-ELO racer gets roughly 70, 76, and 82 WPM; higher ratings progress toward a 120 WPM ceiling. Races use a synchronized countdown and stream authoritative progress, WPM, accuracy, and finish order. Private rooms use four-letter codes and host-controlled starts. Rematches keep the human group together and recalculate every bot from the returning lobby's ELO.
 
 ## Account progression

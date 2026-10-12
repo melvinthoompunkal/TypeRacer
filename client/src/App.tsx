@@ -408,6 +408,7 @@ function App() {
         [...current].filter((index) => index < nextCorrectCount),
       ))
       setTyped(rawValue)
+      playGameSound(soundEnabled, 'backspace')
       return
     }
 
@@ -419,6 +420,7 @@ function App() {
       addedCorrect,
     } = acceptTypingInput(typed, rawValue, round.sentence)
     if (accepted === typed) return
+    playGameSound(soundEnabled, 'type')
 
     const start = startedAt ?? Date.now()
     if (startedAt === null) {

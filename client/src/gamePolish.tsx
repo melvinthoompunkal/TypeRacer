@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 
-type SoundKind = 'countdown' | 'go' | 'error' | 'finish' | 'win'
+type SoundKind = 'type' | 'backspace' | 'countdown' | 'go' | 'error' | 'finish' | 'win'
 export type ColorTheme = 'light' | 'dark'
 
 let audioContext: AudioContext | null = null
@@ -33,11 +33,31 @@ function tone(
   oscillator.stop(start + duration + 0.02)
 }
 
+function keyClick(context: AudioContext, backspace = false) {
+  const oscillator = context.createOscillator()
+  const gain = context.createGain()
+  const start = context.currentTime
+  const frequency = backspace
+    ? 520 + Math.random() * 90
+    : 1_050 + Math.random() * 260
+
+  oscillator.type = backspace ? 'triangle' : 'square'
+  oscillator.frequency.setValueAtTime(frequency, start)
+  gain.gain.setValueAtTime(backspace ? 0.012 : 0.009, start)
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + (backspace ? 0.035 : 0.022))
+  oscillator.connect(gain)
+  gain.connect(context.destination)
+  oscillator.start(start)
+  oscillator.stop(start + (backspace ? 0.04 : 0.027))
+}
+
 export function playGameSound(enabled: boolean, kind: SoundKind) {
   if (!enabled) return
 
   try {
     const context = getAudioContext()
+    if (kind === 'type') keyClick(context)
+    if (kind === 'backspace') keyClick(context, true)
     if (kind === 'countdown') tone(context, 440, 0, 0.09)
     if (kind === 'go') {
       tone(context, 660, 0, 0.1)

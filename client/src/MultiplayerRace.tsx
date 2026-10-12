@@ -286,6 +286,7 @@ export default function MultiplayerRace({
         [...current].filter((index) => index < nextCorrectCount),
       ))
       setTyped(rawValue)
+      playGameSound(soundEnabled, 'backspace')
       socket.emit('race:typed', { text: rawValue })
       return
     }
@@ -295,6 +296,7 @@ export default function MultiplayerRace({
     const { text: accepted } = acceptTypingInput(typed, rawValue, race.sentence)
     if (accepted === typed) return
 
+    playGameSound(soundEnabled, 'type')
     setTyped(accepted)
     socket.emit('race:typed', { text: accepted })
   }
